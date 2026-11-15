@@ -1,4 +1,6 @@
--- Sfx v2.1: звуки боя, скиллов, ультов и интерфейса. ModuleScript, работает только на клиенте.
+-- Sfx v2.2: звуки боя, скиллов, ультов и интерфейса. ModuleScript, работает только на клиенте.
+-- v2.2: у каждого скилла «звуковая дорожка» (несколько звуков по таймингу анимации: замах, шаг, свист, захват...),
+--       звуки шагов/приземления для Locomotion, свист у шагов ульты.
 -- Все звуки — встроенные в Roblox (rbxasset://sounds/...), их не нужно загружать и у них нет проблем с АП.
 -- v2.1: каждый звук собирается из нескольких слоёв и пропускается через эффекты (эквалайзер, перегруз, компрессор,
 -- реверб), поэтому удары звучат «мясно», а не мультяшно. У каждого бойца свой «материал» удара и своя ульта.
@@ -75,6 +77,31 @@ local LIB={
  headbutt  ={layers={{id='plunk',vol=.6,speed=.9,fx='punch'},{id='oof',vol=.25,speed=1.6,delay=.3}}},
  warnShot  ={layers={{id='boom',vol=.8,speed=2,fx='crunch'},{id='snap',vol=1,speed=.45,fx='crunch'},{id='paint',vol=.4,speed=.5,delay=.05}},dist=240},
  blockUp   ={id='unsheath',vol=.22,speed=1.8,var=.1,dist=60,fx='metal'},
+ -- v2.2: звуки для дорожек скиллов и движений
+ charge    ={layers={{id='whoosh',vol=.3,speed=.55,fx='air'},{id='lunge',vol=.22,speed=.5,fx='air',delay=.1}}},
+ glint     ={layers={{id='unsheath',vol=.42,speed=2.2,fx='metal'},{id='ping',vol=.12,speed=2.6,fx='bell'}}},
+ stab      ={layers={{id='slash',vol=.4,speed=2.6,fx='air'},{id='splat',vol=.3,speed=1.2}}},
+ cloth     ={layers={{id='splat',vol=.28,speed=.7},{id='whoosh',vol=.18,speed=2.8,fx='air'}}},
+ step      ={layers={{id='land',vol=.32,speed=1.15,var=.1,fx='punch'}}},
+ stomp     ={layers={{id='land',vol=.6,speed=.7,fx='punch'},{id='plunk',vol=.4,speed=.5,fx='punch'}},dist=90},
+ jab       ={layers={{id='slash',vol=.24,speed=2.5,var=.1,fx='air'}}},
+ scoop     ={layers={{id='splat',vol=.3,speed=.6},{id='land',vol=.22,speed=1.5}}},
+ lift      ={layers={{id='oof',vol=.32,speed=.8},{id='whoosh',vol=.3,speed=1,fx='air'}}},
+ cuff      ={layers={{id='switch',vol=.5,speed=1.3},{id='click',vol=.5,speed=1.6,delay=.06},{id='unsheath',vol=.28,speed=2,fx='metal'}}},
+ holster   ={layers={{id='unsheath',vol=.35,speed=1.2,fx='metal'},{id='click',vol=.3,speed=1.1,delay=.08}}},
+ inhale    ={layers={{id='whoosh',vol=.3,speed=.5,fx='air'},{id='oof',vol=.2,speed=1.8}}},
+ spit      ={layers={{id='splat',vol=.6,speed=1},{id='splat',vol=.4,speed=1.6,delay=.08},{id='whoosh',vol=.25,speed=2.2,fx='air'}}},
+ breath    ={layers={{id='oof',vol=.28,speed=.6,fx='crunch'}}},
+ shake     ={layers={{id='glass',vol=.12,speed=2.2},{id='splat',vol=.2,speed=2.4,delay=.08},{id='glass',vol=.1,speed=2.4,delay=.16}}},
+ fizz      ={layers={{id='splat',vol=.45,speed=2},{id='whoosh',vol=.3,speed=3,fx='air'}}},
+ fallBack  ={layers={{id='oof',vol=.32,speed=1.3},{id='land',vol=.5,speed=.8,fx='punch',delay=.25}}},
+ spinWhoosh={layers={{id='whoosh',vol=.35,speed=1.2,fx='air'},{id='slash',vol=.25,speed=1.4,fx='air',delay=.08}}},
+ rustle    ={layers={{id='splat',vol=.25,speed=1.8},{id='glass',vol=.12,speed=1.8,delay=.05}}},
+ dodge     ={layers={{id='whoosh',vol=.3,speed=2.4,fx='air'}}},
+ belly     ={layers={{id='plunk',vol=.3,speed=.5,fx='punch'}}},
+ glassTink ={layers={{id='glass',vol=.15,speed=2.4,fx='metal'}}},
+ phoneRing ={layers={{id='ping',vol=.28,speed=1.9,fx='bell'},{id='ping',vol=.28,speed=1.9,fx='bell',delay=.1},{id='ping',vol=.28,speed=1.9,fx='bell',delay=.35},{id='ping',vol=.28,speed=1.9,fx='bell',delay=.45}}},
+ jumpUp    ={layers={{id='whoosh',vol=.18,speed=2.2,fx='air'}},dist=60},
  -- «материал» удара каждого бойца (добавляется к обычному звуку попадания)
  mat_Siply ={layers={{id='unsheath',vol=.3,speed=.85,var=.08,fx='metal'},{id='collide',vol=.25,speed=1.5,fx='metal'}}},
  mat_Diesel={layers={{id='plunk',vol=.45,speed=.7,var=.08,fx='punch'},{id='hit',vol=.25,speed=.7,fx='punch'}}},
@@ -101,13 +128,35 @@ local LIB={
  ultReady  ={layers={{id='ping',vol=.5,speed=1.4,fx='bell'},{id='ping',vol=.5,speed=1.9,fx='bell',delay=.12},{id='ping',vol=.45,speed=2.4,fx='bell',delay=.24}},ui=true},
 }
 -- Какой звук у какого скилла: [боец][клавиша]. Клавиши: Z X C V — скиллы, R — особый приём.
+-- Звуковые дорожки скиллов: [боец][клавиша] = {{через сек, звук}, ...}. Тайминги совпадают с анимациями R6Animations.
+-- Звук самого попадания играет отдельно (событие FX), здесь — замахи, шаги, свист, захваты, предметы.
 local SKILLS={
- Siply ={Z='swingHeavy',X='knife',C='phone',V='uppercut'},
- Diesel={Z='dashPunch',X='counter',C='swingHeavy',V='swingHeavy'},
- Bitok ={Z='dashPunch',X='dust',C='grab',V='metalSwing'},
- Major ={Z='badge',X='batonSwing',C='grab',V='warnShot',R='shot'},
- Yura  ={Z='bottleThrow',X='spray',C='grab',V='swingHeavy',R='burp'},
- Jack  ={Z='beer',X='sweep',C='headbutt',V='bottleThrow'},
+ Siply ={Z={{0,'charge'},{.12,'step'},{.38,'swingHeavy'}},
+         X={{0,'glint'},{.08,'stab'},{.27,'cloth'}},
+         C={{0,'phoneRing'},{.12,'dashGrab'},{.32,'cloth'}},
+         V={{0,'step'},{.18,'charge'},{.26,'uppercut'}}},
+ Diesel={Z={{0,'step'},{.16,'jab'},{.32,'swingLight'}},
+         X={{0,'dodge'},{.2,'dodge'},{.4,'dodge'}},
+         C={{0,'step'},{.28,'swingHeavy'}},
+         V={{0,'charge'},{.43,'swingHeavy'}}},
+ Bitok ={Z={{0,'step'},{.12,'spinWhoosh'}},
+         X={{0,'scoop'},{.14,'dust'}},
+         C={{.1,'cloth'},{.28,'lift'},{.46,'swingHeavy'}},
+         V={{0,'charge'},{.4,'metalSwing'}}},
+ Major ={Z={{0,'badge'},{.12,'jab'}},
+         X={{0,'cloth'},{.26,'batonSwing'}},
+         C={{.2,'cuff'},{.3,'cloth'},{.55,'swingHeavy'},{.9,'cuff'}},
+         V={{0,'holster'},{.14,'charge'}},
+         R={{0,'holster'}}},
+ Yura  ={Z={{0,'glassTink'},{.2,'bottleThrow'}},
+         X={{0,'inhale'},{.23,'spit'}},
+         C={{0,'dashGrab'},{.25,'lift'},{.7,'breath'},{1.1,'breath'}},
+         V={{0,'rustle'},{.2,'spinWhoosh'},{.45,'swingHeavy'}},
+         R={{0,'belly'},{.16,'burp'}}},
+ Jack  ={Z={{0,'shake'},{.2,'fizz'},{.24,'beer'}},
+         X={{0,'fallBack'}},
+         C={{.15,'cloth'},{.5,'jab'},{.8,'jab'},{1.1,'jab'}},
+         V={{0,'spinWhoosh'},{.26,'bottleThrow'}}},
 }
 local BLIND={dust='blindDust',toxic='blindToxic',beer='blindBeer'}
 
@@ -166,7 +215,11 @@ function Sfx.event(d) -- события SFX от сервера
  if type(d)~='table' or typeof(d.position)~='Vector3' then return end
  local pos,name=d.position,d.name
  if name=='Swing' then play(d.heavy and 'swingHeavy' or 'swingLight',pos)
- elseif name=='Skill' then local set=SKILLS[d.fighter];play((set and set[d.key]) or 'swingLight',pos)
+ elseif name=='Skill' then
+  local set=SKILLS[d.fighter];local tl=set and set[d.key]
+  if type(tl)=='table' then
+   for _,e in ipairs(tl) do if e[1]<=0 then play(e[2],pos) else task.delay(e[1],function() play(e[2],pos) end) end end
+  else play('swingLight',pos) end
  elseif name=='Ult' then play('ult_'..tostring(d.fighter),pos)
  elseif name=='Finisher' then play('finisher',pos)
  elseif name=='Knockdown' then play('knockdown',pos)
