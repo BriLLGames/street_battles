@@ -1,4 +1,6 @@
--- R6Animations v1.7: процедурные анимации на ключевых кадрах (без загрузки Animation ID).
+-- R6Animations v2.1: процедурные анимации на ключевых кадрах (без загрузки Animation ID).
+-- v2.1: удары с «перехлёстом» (Back), рывки в 4 стороны со своим стилем у каждого бойца, тяжёлая реакция на сильный удар,
+--       светящиеся шлейфы за руками (и ногами при пинках), атрибут SB_Act для Locomotion (стойка/походка бойцов).
 -- v1.5: у рывка добавлен присед перед стартом.
 -- v1.4: автоматический футворк (ноги шагают в каждой фазе удара), доводка после удара (тело «пружинит», а не щёлкает в стойку),
 --       живая реакция на попадание (в разные стороны), новый рывок. Аура ульта теперь в VfxClient.
@@ -45,13 +47,15 @@ local function goal(key,restC0,a,Rw)
   R=CFrame.Angles(0,rad(-(a[2] or 0)),0)*CFrame.Angles(rad(a[1] or 0),0,0)*CFrame.Angles(0,0,rad(-(a[3] or 0)))
  else -- ноги: компенсируем поворот корпуса, чтобы ноги не крутились вместе с ним
   local comp=CFrame.new():Lerp(Rw,.85):Inverse()
-  R=comp*CFrame.Angles(rad(a and a[1] or 0),0,0)
+  local s=key=='RH' and 1 or -1 -- v2.1: второй угол ноги — отвод в сторону
+  R=comp*CFrame.Angles(rad(a and a[1] or 0),0,0)*CFrame.Angles(0,0,rad((a and a[2] or 0)*s))
  end
  return CFrame.new(restC0.Position)*R*restC0.Rotation
 end
 
 local function merge(a,b) local o={} for k,v in pairs(a) do o[k]=v end for k,v in pairs(b or {}) do o[k]=v end return o end
 local Q,B,QI=Enum.EasingStyle.Quad,Enum.EasingStyle.Quint,Enum.EasingStyle.Sine
+local BK=Enum.EasingStyle.Back -- v2.1: удар с небольшим перехлёстом — резче и «тяжелее»
 local OUT,IN,INOUT=Enum.EasingDirection.Out,Enum.EasingDirection.In,Enum.EasingDirection.InOut
 local function fr(dur,pose,style,dir,hold) return {dur=dur,pose=pose,style=style or Q,dir=dir or OUT,hold=hold or 0} end
 
@@ -76,16 +80,16 @@ local function punchFrames(fighter,index,heavy)
  if third then
   wind={[A]={165,P.o+10,0},[Bk]={70,0,20},W={-10,38*sg,P.roll*sg},H={-8,10*sg,P.tilt},[LF]={P.stance*.5},[LB]={-P.stance*.5}}
   hit ={[A]={55,0,P.chop and 40 or 55},[Bk]={50,0,25},W={P.lean+18,-(P.twist+14)*sg,-P.roll*sg},H={-14,-10*sg,P.tilt},[LF]={P.stance*1.1},[LB]={-P.stance*.9}}
-  return {fr(.2,wind,Q,INOUT),fr(.10,hit,B,OUT,.12)}
+  return {fr(.2,wind,Q,INOUT),fr(.10,hit,BK,OUT,.12)}
  end
  wind={[A]=P.chop and {145,14,0} or {25,P.o,0},[Bk]={85,0,25},W={-6,P.twist*.7*sg,P.roll*sg},H={0,8*sg,P.tilt},[LF]={P.stance*.5},[LB]={-P.stance*.4}}
  hit ={[A]=P.chop and {58,0,30} or {P.f,0,22},[Bk]={80,0,28},W={P.lean,-P.twist*sg,-P.roll*sg},H={-6,-12*sg,P.tilt*.5},[LF]={P.stance*.9},[LB]={-P.stance*.7}}
- return {fr(.06,wind,Q,OUT),fr(.07,hit,B,OUT,.05)}
+ return {fr(.06,wind,Q,OUT),fr(.07,hit,BK,OUT,.05)}
 end
 
 -- Навыки: у каждого бойца свои позы. S(замах,поза,удар,поза[,доп.кадры])
 local function S(t1,w,t2,h,extra)
- local list={fr(t1,w,Q,INOUT),fr(t2,h,B,OUT,.12)}
+ local list={fr(t1,w,Q,INOUT),fr(t2,h,BK,OUT,.12)}
  for _,f in ipairs(extra or {}) do list[#list+1]=f end
  return list
 end
@@ -204,6 +208,42 @@ local function ultFrames(fighter)
  return {fr(.3,gather,Q,INOUT),fr(.12,burst,B,OUT,.45)}
 end
 
+-- v2.1: рывки в 4 стороны (1 вперёд, 2 назад, 3 влево, 4 вправо), у каждого бойца свой стиль
+local DSTYLE={
+ Siply ={c=1,  l=1.1,arms='back'},     -- низкий уличный спринт, руки назад
+ Diesel={c=.8, l=.8, arms='guard'},    -- боксёрский подшаг, кулаки у лица
+ Bitok ={c=.7, l=1,  arms='shoulder'}, -- таран плечом
+ Major ={c=.9, l=.7, arms='tight'},    -- уставной рывок, руки прижаты
+ Yura  ={c=1.2,l=1.3,arms='flail'},    -- пьяный бросок, руки болтаются
+ Jack  ={c=1,  l=.9, arms='flail'},    -- пьяный рывок с размахиванием
+}
+local function dashArms(st,sg)
+ if st=='guard' then return {80,10,55},{88,8,60} end
+ if st=='shoulder' then return {30,45,0},{-35,25,0} end
+ if st=='tight' then return {-25,6,0},{-25,6,0} end
+ if st=='flail' then return {70,55*sg,0},{-40,50,0} end
+ return {-60,22,0},{-60,22,0}
+end
+local function dashFrames(fighter,dir)
+ local d=DSTYLE[fighter] or DSTYLE.Siply;local c,l=d.c,d.l
+ if dir==2 then -- назад: откидывается, ноги вперёд
+  local R1,L1=dashArms(d.arms,1);local guard=d.arms=='guard'
+  return {fr(.04,{W={8*c,0,0},H={-6,0,0},LH={10},RH={-8}},Q,OUT),
+  fr(.08,{W={-24*l,0,0},H={16,0,0},R=guard and R1 or {45,30,0},L=guard and L1 or {45,30,0},LH={46},RH={24}},BK,OUT,.05),
+  fr(.1,{W={-10*l,0,0},H={6,0,0},R=guard and R1 or {20,20,0},L=guard and L1 or {20,20,0},LH={-8},RH={18}},QI,INOUT,.04)}
+ elseif dir==3 or dir==4 then -- вбок: крен в сторону рывка, ведущая нога отводится
+  local sg=dir==4 and 1 or -1
+  local R1,L1=dashArms(d.arms,sg)
+  return {fr(.04,{W={8*c,0,-6*sg},H={-4,0,0},RH={6,sg>0 and -4 or 10},LH={6,sg<0 and -4 or 10}},Q,OUT),
+  fr(.08,{W={10*c,-14*sg,20*sg*l},H={-4,12*sg,-12*sg},R=R1,L=L1,RH={0,sg>0 and 32 or -6},LH={0,sg<0 and 32 or -6}},BK,OUT,.05),
+  fr(.1,{W={6,-6*sg,8*sg},H={0,6*sg,-4*sg},R=R1,L=L1,RH={0,sg>0 and 12 or 4},LH={0,sg<0 and 12 or 4}},QI,INOUT,.04)}
+ end
+ local R1,L1=dashArms(d.arms,1);local sh=d.arms=='shoulder'
+ return {fr(.04,{W={10*c,0,0},H={-6,0,0},R={20,18,0},L={20,18,0},LH={-14*c},RH={18*c}},Q,OUT),
+ fr(.08,{W={40*l,sh and 30 or 0,0},H={-18*l,sh and -20 or 0,0},R=R1,L=L1,LH={50},RH={-40}},BK,OUT,.05),
+ fr(.1,{W={26*l,sh and 18 or 0,0},H={-10,0,0},R=R1,L=L1,LH={-28},RH={36}},QI,INOUT,.04)}
+end
+
 local function framesFor(fighter,kind,index,heavy,ult)
  if kind=='Punch' then return punchFrames(fighter,index or 1,heavy),true
  elseif kind=='Skill' then return skillFrames(fighter,index or 1,false,ult),true
@@ -216,23 +256,48 @@ local function framesFor(fighter,kind,index,heavy,ult)
  elseif kind=='Finisher' then return finisherFrames(fighter),true
  elseif kind=='Ult' then return ultFrames(fighter),false
  elseif kind=='Dash' then
-  return {fr(.04,{R={25,20,0},L={25,20,0},W={-10,0,0},H={8,0,0},LH={-18},RH={22}},Q,OUT), -- v1.5: короткий присед-отвод перед стартом
-   fr(.07,{R={-50,25,0},L={-50,25,0},W={42,0,0},H={-16,0,0},LH={46},RH={-36}},B,OUT,.04),
-   fr(.1,{R={-30,25,0},L={-30,25,0},W={30,0,0},H={-10,0,0},LH={-30},RH={40}},QI,INOUT,.06)},false
- elseif kind=='Block' then
+return dashFrames(fighter,index or 1),false
+elseif kind=='Block' then
   local g={R={105,10,28},L={105,10,28},W={10,0,0},H={-12,0,0},LH={18},RH={-14}}
   if fighter=='Jack' then g=merge(g,{W={14,0,8},H={-14,0,10}}) elseif fighter=='Diesel' then g=merge(g,{W={18,0,0},LH={26},RH={-20}}) end
   return {fr(.12,g,Q,OUT)},false
  elseif kind=='Hit' then
   local sd=(math.random(2)==1) and 1 or -1 -- каждый раз отшатывается в другую сторону
+if index==2 then -- v2.1: сильный удар — тело отбрасывает назад, руки разлетаются
+ return {fr(.05,{R={-35,40,0},L={-35,40,0},W={-32,18*sd,10*sd},H={36,14*sd,10*sd},LH={-20},RH={24}},Q,OUT,.1),
+ fr(.22,{R={-10,20,0},L={-10,20,0},W={-12,8*sd,4*sd},H={14,6*sd,4*sd},LH={-6},RH={8}},QI,OUT,0)},false
+end
   return {fr(.05,{R={-20,25,0},L={-20,25,0},W={-20,14*sd,7*sd},H={28,12*sd,9*sd},LH={-8},RH={12}},Q,OUT,.05),
    fr(.12,{R={-8,12,0},L={-8,12,0},W={-8,6*sd,3*sd},H={10,4*sd,3*sd}},QI,OUT,0)},false
  end
 end
 
-local function setTrails(char,on)
- local props=char and char:FindFirstChild('FighterProp');if not props then return end
- for _,d in ipairs(props:GetDescendants()) do if d:IsA('Trail') then d.Enabled=on end end
+-- v2.1: шлейфы за конечностями во время удара (цвет бойца), создаются только на клиенте
+local TCOL={Siply=Color3.fromRGB(225,232,255),Diesel=Color3.fromRGB(255,150,70),Bitok=Color3.fromRGB(255,110,90),Major=Color3.fromRGB(120,170,255),Yura=Color3.fromRGB(150,240,110),Jack=Color3.fromRGB(255,205,110)}
+local function limbTrail(limb)
+ local t=limb:FindFirstChild('SB_LimbTrail');if t then return t end
+ local a0=Instance.new('Attachment');a0.Name='SB_TA0';a0.Position=Vector3.new(0,-.7,0);a0.Parent=limb
+ local a1=Instance.new('Attachment');a1.Name='SB_TA1';a1.Position=Vector3.new(0,-1.05,0);a1.Parent=limb
+ t=Instance.new('Trail');t.Name='SB_LimbTrail';t.Attachment0=a0;t.Attachment1=a1;t.Lifetime=.14;t.MinLength=.05;t.FaceCamera=true;t.LightEmission=.9;t.LightInfluence=0
+ t.WidthScale=NumberSequence.new({NumberSequenceKeypoint.new(0,3.2),NumberSequenceKeypoint.new(1,0)})
+ t.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.3),NumberSequenceKeypoint.new(.6,.75),NumberSequenceKeypoint.new(1,1)})
+ t.Enabled=false;t.Parent=limb
+ return t
+end
+local function setTrails(char,on,kick,fighter)
+ local props=char and char:FindFirstChild('FighterProp')
+ if props then for _,d in ipairs(props:GetDescendants()) do if d:IsA('Trail') then d.Enabled=on end end end
+ if not char then return end
+ local col=TCOL[fighter or ''] or Color3.new(1,1,1)
+ for _,nm in ipairs({'Right Arm','Left Arm','Right Leg','Left Leg'}) do
+  local limb=char:FindFirstChild(nm)
+  if limb then
+   local leg=nm:find('Leg')~=nil
+   local t=limb:FindFirstChild('SB_LimbTrail')
+   if on and (not leg or kick) then t=limbTrail(limb);t.Color=ColorSequence.new(Color3.new(1,1,1),col);t.Enabled=true
+   elseif t then t.Enabled=false end
+  end
+ end
 end
 
 local function play(player,kind,index,hold,heavy)
@@ -244,8 +309,12 @@ local function play(player,kind,index,hold,heavy)
  rest[char]=rest[char] or {}
  local r=rest[char]
  for k,m in pairs(motors) do r[k]=r[k] or m.C0 end
- local frames,strike=framesFor(player:GetAttribute('Fighter') or 'Siply',kind,index,heavy,player:GetAttribute('UltActive'))
- if not frames then return end
+ local fname=player:GetAttribute('Fighter') or 'Siply'
+local frames,strike=framesFor(fname,kind,index,heavy,player:GetAttribute('UltActive'))
+if not frames then return end
+local total,kick=0,false -- v2.1: сколько длится действие (для Locomotion) и есть ли пинок (шлейф за ногой)
+for _,f in ipairs(frames) do total+=f.dur+f.hold;if (f.pose.RH and (f.pose.RH[1] or 0)>60) or (f.pose.LH and (f.pose.LH[1] or 0)>60) then kick=true end end
+char:SetAttribute('SB_Act',hold and os.clock()+1e6 or os.clock()+total+.4)
  if strike then -- автоматический футворк: если в кадре не заданы ноги, они шагают (чередуя «шаг» и «упор»)
   local sg=(token%2==0) and 1 or -1
   for i,f in ipairs(frames) do
@@ -256,7 +325,7 @@ local function play(player,kind,index,hold,heavy)
   end
  end
  task.spawn(function()
-  if strike then setTrails(char,true) end
+  if strike then setTrails(char,true,kick,fname) end
   for _,f in ipairs(frames) do
    if tokens[id]~=token or player.Character~=char then return end
    local Rw=bodyRot(f.pose.W)
@@ -282,8 +351,8 @@ end
 local function reset(player)
  local char=player.Character;tokens[player.UserId]=(tokens[player.UserId] or 0)+1
  local r=char and rest[char];if not r then return end
- setTrails(char,false)
- for k,m in pairs(joints(char) or {}) do if r[k] and m.Parent then TweenService:Create(m,TweenInfo.new(.2,Q,OUT),{C0=r[k]}):Play() end end
+ setTrails(char,false);char:SetAttribute('SB_Act',0)
+for k,m in pairs(joints(char) or {}) do if r[k] and m.Parent then TweenService:Create(m,TweenInfo.new(.2,Q,OUT),{C0=r[k]}):Play() end end
 end
 
 event.OnClientEvent:Connect(function(kind,data)
