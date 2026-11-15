@@ -1,4 +1,5 @@
--- VfxClient v2.1: визуальные эффекты боя (LocalScript в StarterPlayerScripts).
+-- VfxClient v2.2: визуальные эффекты боя (LocalScript в StarterPlayerScripts).
+-- v2.2: у каждого скилла свой набор мелких эффектов и своя «работа камеры» (таблица CAM), камера на блок и нокдаун.
 -- v2.1: камера при ударах (толчок от направления удара, импульс у атакующего, «стоп-кадр» на сильных ударах),
 --       кинематографичные полосы и импакт-кадры в ультах, всплывающие статусы над бойцами, кровь, детали скиллов
 --       (выстрел вверх, свечение телефона, перегар, пивная пена, удары лбом), красная кайма при низком здоровье.
@@ -419,6 +420,7 @@ IMP.Break=function(p,dir,th,pw,gp)
  if nearMe(gp,16) then ccPulse(.05,.3,-.3,C3(255,170,160),.3);kick(6);vignette(red,.4,.35);bloomPulse(.6,.3) end
 end
 IMP.Guard=function(p,dir,th,pw,gp)
+if nearMe(p,4) then addTrauma(.08);camPunch(V3(rad(1.2),0,0)) end -- v2.2: удар в блок
  local blue=C3(90,185,255)
  flash(p,WHITE,3,.1,false);glow(p,blue,6,.25);star(p,WHITE,4,.14,3)
  bubble(p+(dir or V3(0,0,0))*.8,blue,1.4,4.2,.22,.5)
@@ -442,6 +444,7 @@ IMP.Counter=function(p,dir,th,pw,gp)
  if nearMe(gp,18) then ccPulse(.12,.5,-.7,WHITE,.35);kick(-5);vignette(th.core,.3,.3);bloomPulse(.8,.4) end
 end
 IMP.Down=function(p,dir,th,pw,gp)
+if nearMe(gp,3.5) then addTrauma(.3);camPunch(V3(rad(5),0,rad(R(-8,8)))) end -- v2.2: тебя сбили с ног
  dustRing(gp,1.4,6);debris(gp,GRAY,3,12);ring(CF(gp+V3(0,.15,0)),GRAY,.8,5,.35,.3,14)
 end
 IMP.Bleed=function(p) -- v2.1: капли крови у того, кто кровоточит
@@ -650,46 +653,125 @@ end
 
 -- Эффекты каждого скилла: {через сколько сек, шаг, параметры}. Времена совпадают с ударами на сервере.
 -- Шаги: charge (сбор энергии), slash (дуга), burst (вспышка), ground (удар в землю), dustcloud (облако), muzzle (выстрел), throw, pulse, aura.
+-- v2.2: мелкие эффекты под каждый скилл
+STEP.glint=function(c,a) -- блеск лезвия
+local arm=c.char:FindFirstChild('Right Arm');if not arm then return end
+local p=(arm.CFrame*CF(0,-2.6,-.1)).Position;star(p,WHITE,2.2,.16,4);glow(p,C3(210,225,255),2,.15)
+end
+STEP.shockup=function(c,a) -- столб колец вверх (апперкот)
+local r=c.root
+for i=0,3 do task.delay(i*.03,function() if r.Parent then ring(CF(frontPos(r,a.f or 3,-1.5+i*1.4)),i%2==0 and c.th.core or c.th.main,.4,2.4+i*.5,.28,.22,14) end end) end
+sparks(frontPos(r,a.f or 3,1),V3(0,1,0),c.th.core,10,60,.3,.35,1.8)
+end
+STEP.bodyhit=function(c,a) -- сжатая волна на уровне корпуса
+local r=c.root;local pos=frontPos(r,a.f or 3.5,-.4);local look=r.CFrame.LookVector
+ring(facing(pos,look),c.th.main,.4,3.6,.22,.4,16);bubble(pos,c.th.core,.5,2.6,.2,.6);sparks(pos,look,c.th.core,8,50,.5,.3,1.4)
+end
+STEP.spin=function(c,a) -- горизонтальная волна вокруг бойца (разворот, раскрутка)
+local pos=c.root.Position+V3(0,.2,0)
+ring(CF(pos),c.th.main,.8,a.r or 4,.3,.35,20);ring(CF(pos+V3(0,.8,0)),WHITE,.6,(a.r or 4)*.8,.24,.18,16)
+end
+STEP.scoop=function(c,a) -- загребает пыль с асфальта
+local gp=groundPos(c.root,a.f or 1.6)
+puff(gp+V3(0,.3,0),{color=C3(170,150,120),n=6,s0=.8,s1=2.6,life=.6,v0=2,v1=6,drag=3,a0=.4,a1=.8,acc=V3(0,3,0)});debris(gp,C3(130,115,95),4,10)
+end
+STEP.cufflink=function(c,a) -- щелчок наручников
+local arm=c.char:FindFirstChild('Right Arm');if not arm then return end
+local p=(arm.CFrame*CF(0,-1.7,-.2)).Position;sparks(p,nil,C3(230,235,245),8,30,1,.25,.8);arcs(p,C3(90,150,255),2,2.5,.12);star(p,WHITE,2,.14,4)
+end
+STEP.afterimg=function(c,a) afterimage(c.char,c.th,a.a or .5) end
+STEP.inhale=function(c,a) -- воздух втягивается в рот
+local n=math.min(N(10),MAXSIM-#sims);if n<=0 then return end
+for i=1,n do
+local o=V3(R(-1,1),R(-.4,1),R(-1,1));if o.Magnitude<.1 then o=V3(0,1,0) end;o=o.Unit*R(3,5)
+local p=mkPart(BALL,V3(.22,.22,.22),C3(170,200,120),.3,CF(headPos(c)+o),nil,1);local el=0;local t=R(.15,.25)
+addSim(function(dt) el+=dt;local k=clamp(el/t,0,1);p.CFrame=CF(headPos(c)+o*(1-k*k));p.Transparency=.3+k*.7;if k>=1 then p:Destroy();return true end;return false end)
+end
+end
+STEP.shakefoam=function(c,a) -- пена из взболтанной бутылки
+local arm=c.char:FindFirstChild('Right Arm');if not arm then return end
+for i=0,3 do task.delay(i*.05,function() if arm.Parent then local p=(arm.CFrame*CF(0,-2,-.9)).Position;droplets(p,V3(0,1,0),C3(255,250,235),3,10,.18,Enum.Material.SmoothPlastic) end end) end
+end
+
+-- Эффекты каждого скилла: {через сколько сек, шаг, параметры}. Времена совпадают с анимациями и ударами на сервере.
 local CAST={
- Siply={
-  Z={{0,'charge',{at='R',t=.4,n=10}},{0,'slide',{t=.22}},{.4,'slide',{t=.15,spark=true}},{.4,'slash',{r=6.5,a0=70,a1=-45,tilt=18,h=.4,t=.15,w=2.4}},{.4,'wind',{f=2,n=4}},{.46,'ground',{f=4.5,r=7}}},
-  X={{0,'wind',{f=1.5,n=3}},{.1,'slash',{r=5,a0=-25,a1=25,tilt=-12,h=.3,t=.07,w=1.2,col='core'}},{.14,'burst',{f=4.5,s=2}},{.2,'slide',{t=.14}}},
-  C={{0,'handglow',{col=C3(120,200,255),t=.55}},{0,'slide',{t=.22,spark=true}},{0,'wind',{f=2,n=5}},{.22,'burst',{f=3.5,s=3.5}},{.55,'slide',{t=.2}}},
-  V={{0,'charge',{at='R',t=.24,n=6}},{.24,'slash',{r=6,a0=-70,a1=75,tilt=90,h=.2,t=.12,w=2.4}},{.26,'slide',{t=.14}},{.3,'burst',{f=3.5,h=2,s=3}}},
- },
- Diesel={
-  Z={{0,'slide',{t=.2,spark=true}},{.1,'aura',{t=.5}},{.22,'slash',{r=4.5,a0=-20,a1=15,tilt=0,h=.4,t=.06,w=1.6}},{.4,'slash',{r=5.2,a0=30,a1=-15,tilt=-12,h=.3,t=.08,w=2.2}},{.4,'burst',{f=4.5,s=2.5}},{.4,'embers',{f=4.5,n=8}}},
-  X={{0,'pulse',{}},{0,'slide',{t=.26}}},
-  C={{0,'slide',{t=.12,spark=true}},{.3,'slash',{r=4.8,a0=-30,a1=30,tilt=0,h=-.6,t=.08,w=2}},{.36,'burst',{f=4,s=3,h=-.5}},{.38,'slide',{t=.18}},{.4,'embers',{f=4,n=8,h=-.4}}},
-  V={{0,'charge',{at='R',t=.45,n=14}},{.46,'slash',{r=6.5,a0=75,a1=-35,tilt=90,h=.8,t=.11,w=3}},{.46,'wind',{f=2,n=5}},{.5,'embers',{f=5.5,n=18}},{.52,'ground',{f=5.5,r=8}}},
- },
- Bitok={
-  Z={{0,'slide',{t=.2,spark=true}},{.18,'slash',{r=4.5,a0=-40,a1=35,tilt=0,h=.3,t=.07,w=1.8}},{.2,'ground',{f=3,r=4}},{.24,'slide',{t=.16}}},
-  X={{0,'slide',{t=.16}},{.2,'dustcloud',{f=5,s=1}}},
-  C={{.05,'slide',{t=.14}},{.25,'burst',{f=3.5,s=3}},{.55,'ground',{f=3,r=7}}},
-  V={{0,'charge',{at='R',t=.45,n=12}},{.3,'slide',{t=.14}},{.46,'slash',{r=7.5,a0=70,a1=-40,tilt=65,h=1,t=.12,w=3.4}},{.46,'slide',{t=.12,spark=true}},{.52,'ground',{f=6.5,r=9}}},
- },
- Major={
-  Z={{0,'wind',{f=1.5,n=3}},{.15,'burst',{f=3,s=2.5}},{.15,'arcs',{f=3,n=3,r=4}},{.2,'slide',{t=.15}}},
-  X={{.28,'slide',{t=.12,spark=true}},{.3,'slash',{r=6,a0=60,a1=-40,tilt=35,h=.6,t=.1,w=2.4}},{.38,'arcs',{f=5,n=4,r=5}}},
-  C={{0,'slide',{t=.2}},{.25,'burst',{f=3.5,s=3}},{.65,'ground',{f=5,r=7}},{.65,'arcs',{f=5,n=5,r=5,col='alt'}}},
-  V={{.3,'muzzle',{f=.6,h=4.3}},{.3,'slide',{t=.12}},{.32,'fear',{r=14}}},
-  R={{.1,'muzzle',{f=3,h=.4}}},
- },
- Yura={
-  Z={{0,'slide',{t=.2}},{.25,'throw',{}},{.25,'splash',{f=3,n=6}},{.22,'slide',{t=.12}}},
-  X={{0,'slide',{t=.2}},{.18,'breath',{}},{.25,'dustcloud',{f=6,s=1.4,col='main'}},{.25,'splash',{f=6,n=10}}},
-  C={{0,'slide',{t=.2,spark=true}},{.25,'burst',{f=3.5,s=3}},{.3,'breath',{}},{.7,'breath',{}}},
-  V={{0,'charge',{at='R',t=.5,n=10}},{.2,'slide',{t=.2}},{.55,'slash',{r=7.2,a0=80,a1=-60,tilt=-20,h=.5,t=.13,w=3.6}},{.5,'slide',{t=.12}},{.62,'ground',{f=6,r=8}},{.62,'splash',{f=6,n=12}}},
-  R={{.2,'pulse',{r=9,col='main'}},{.2,'breath',{big=true}},{.2,'splash',{f=0,n=12}}},
- },
- Jack={
-  Z={{0,'slide',{t=.22}},{.25,'dustcloud',{f=5,s=1,col='main'}},{.25,'splash',{f=4.5,n=16,amber=true}},{.27,'foam',{f=4}}},
-  X={{0,'pulse',{}},{0,'slide',{t=.25}}},
-  C={{.3,'burst',{f=3.5,s=3}},{.4,'slide',{t=.15}},{.6,'headbutt',{}},{.7,'slide',{t=.15}},{.9,'headbutt',{}},{1.2,'headbutt',{}}},
-  V={{0,'slide',{t=.18}},{.3,'throw',{}},{.3,'slide',{t=.12}},{.3,'splash',{f=3,n=8,amber=true}}},
- },
+Siply={
+Z={{0,'charge',{at='R',t=.38,n=12}},{0,'handglow',{col=C3(255,220,150),t=.4}},{.12,'slide',{t=.2}},{.4,'wind',{f=2,n=4}},{.42,'slash',{r=6.5,a0=70,a1=-30,tilt=10,h=.4,t=.12,w=2.6}},{.45,'burst',{f=4,s=4}},{.46,'ground',{f=4.5,r=7}}},
+X={{0,'glint',{}},{.1,'wind',{f=1.5,n=3}},{.15,'slash',{r=4.5,a0=-15,a1=10,tilt=-20,h=-.2,t=.06,w=1,col='core'}},{.17,'burst',{f=4,s=2,h=-.3}},{.2,'slide',{t=.14}},{.27,'glint',{}}},
+C={{0,'handglow',{col=C3(120,200,255),t=.55}},{.1,'slide',{t=.22,spark=true}},{.1,'wind',{f=2,n=5}},{.1,'afterimg',{}},{.32,'burst',{f=3,s=3.5}},{.55,'slide',{t=.2}}},
+V={{0,'slide',{t=.2}},{0,'charge',{at='R',t=.26,n=8}},{.26,'shockup',{f=3}},{.28,'slash',{r=6,a0=-80,a1=80,tilt=90,h=.2,t=.12,w=2.6}},{.3,'burst',{f=3.5,h=2,s=3.5}},{.3,'ground',{f=3,r=5}}},
+},
+Diesel={
+Z={{0,'slide',{t=.2,spark=true}},{.05,'afterimg',{}},{.1,'aura',{t=.5}},{.2,'slash',{r=4.5,a0=-20,a1=10,h=.5,t=.05,w=1.4,col='core'}},{.22,'burst',{f=4.5,s=2}},{.36,'slash',{r=5.2,a0=25,a1=-10,tilt=-8,h=.5,t=.06,w=2}},{.38,'burst',{f=4.5,s=3}},{.38,'embers',{f=4.5,n=10}}},
+X={{0,'pulse',{}},{0,'slide',{t=.26}},{.12,'afterimg',{}},{.26,'afterimg',{}},{.38,'afterimg',{}}},
+C={{0,'slide',{t=.14,spark=true}},{.28,'charge',{at='R',t=.07,n=6}},{.33,'slash',{r=4.6,a0=-40,a1=20,h=-.7,t=.07,w=2}},{.35,'bodyhit',{f=3.8}},{.36,'embers',{f=4,n=10,h=-.4}},{.38,'slide',{t=.18}}},
+V={{0,'charge',{at='R',t=.45,n=14}},{.15,'aura',{t=.5}},{.47,'slash',{r=6.5,a0=75,a1=-35,tilt=70,h=1,t=.1,w=3}},{.48,'wind',{f=2,n=5}},{.5,'embers',{f=5,n=18}},{.5,'ground',{f=5,r=8}}},
+},
+Bitok={
+Z={{0,'slide',{t=.2,spark=true}},{.12,'spin',{r=3.5}},{.18,'slash',{r=4,a0=-60,a1=40,h=.6,t=.06,w=1.8}},{.2,'burst',{f=3,s=3}},{.2,'ground',{f=3,r=4}}},
+X={{0,'scoop',{}},{.16,'dustcloud',{f=5,s=1.1}},{.2,'dustcloud',{f=7,s=.8}}},
+C={{.05,'slide',{t=.14}},{.25,'burst',{f=3,s=3}},{.3,'spin',{r=4}},{.55,'ground',{f=3,r=8}},{.56,'dustcloud',{f=3,s=.8}}},
+V={{0,'charge',{at='R',t=.45,n=12}},{.2,'slide',{t=.14}},{.46,'slash',{r=7.5,a0=80,a1=-20,tilt=90,h=1.2,t=.1,w=3.4}},{.5,'ground',{f=6,r=10}},{.5,'burst',{f=6,s=4}}},
+},
+Major={
+Z={{0,'handglow',{col=C3(255,90,90),t=.3}},{.1,'wind',{f=1.5,n=3}},{.16,'burst',{f=3,s=2.5}},{.18,'arcs',{f=3,n=3,r=4}},{.2,'slide',{t=.15}}},
+X={{0,'arcs',{f=1,h=2.5,n=2,r=3,col='alt'}},{.28,'slide',{t=.12,spark=true}},{.32,'slash',{r=6,a0=60,a1=-40,tilt=50,h=.8,t=.09,w=2.4}},{.36,'arcs',{f=5,n=5,r=5}},{.36,'burst',{f=5,s=3}}},
+C={{0,'slide',{t=.2}},{.25,'cufflink',{}},{.25,'burst',{f=3.5,s=3}},{.45,'slide',{t=.2}},{.65,'ground',{f=4,r=7}},{.65,'arcs',{f=4,n=5,r=5,col='alt'}},{.9,'cufflink',{}}},
+V={{.1,'slide',{t=.1}},{.3,'muzzle',{f=.6,h=4.3}},{.32,'fear',{r=14}}},
+R={{.1,'muzzle',{f=3,h=.4}},{.1,'slide',{t=.08}}},
+},
+Yura={
+Z={{0,'slide',{t=.2}},{.26,'throw',{}},{.26,'splash',{f=3,n=6}}},
+X={{0,'inhale',{}},{.25,'breath',{}},{.25,'dustcloud',{f=6,s=1.4,col='main'}},{.27,'splash',{f=6,n=12}},{.4,'breath',{}}},
+C={{0,'slide',{t=.2,spark=true}},{.25,'burst',{f=3,s=3}},{.25,'ground',{f=3,r=5}},{.75,'breath',{}},{1.15,'breath',{}}},
+V={{0,'slide',{t=.2}},{.2,'spin',{r=4.5}},{.5,'slash',{r=7,a0=100,a1=-70,tilt=-10,h=.4,t=.12,w=3.6}},{.55,'ground',{f=5,r=8}},{.56,'splash',{f=5,n=12}}},
+R={{.05,'inhale',{}},{.2,'pulse',{r=9,col='main'}},{.2,'breath',{big=true}},{.2,'splash',{f=0,n=12}}},
+},
+Jack={
+Z={{0,'shakefoam',{}},{.25,'dustcloud',{f=5,s=1,col='main'}},{.25,'splash',{f=4.5,n=16,amber=true}},{.27,'foam',{f=4}}},
+X={{0,'pulse',{}},{0,'slide',{t=.3}}},
+C={{.3,'burst',{f=3,s=2.5}},{.6,'headbutt',{}},{.9,'headbutt',{}},{1.2,'headbutt',{}}},
+V={{0,'spin',{r=3.5}},{.3,'throw',{}},{.3,'splash',{f=3,n=8,amber=true}},{.3,'slide',{t=.12}}},
+},
 }
+-- v2.2: камера под каждый скилл: {через сек, операция, параметр}. fov — FOV-удар, shake — тряска, punch — толчок {pitch,yaw,roll}°,
+-- lines — скоростные линии, tint — цветовая вспышка, blur — размытие. Кастер получает 100%, враги рядом — 40%.
+local CAM={
+Siply={Z={{.1,'fov',-4},{.4,'lines',.5},{.45,'punch',{-3,0,2}},{.45,'shake',.25},{.45,'fov',6}},
+ X={{.12,'fov',-3},{.17,'punch',{-1.5,1,0}},{.17,'shake',.1}},
+ C={{.1,'lines',.6},{.1,'fov',8},{.32,'punch',{-2,0,-3}},{.32,'shake',.2}},
+ V={{.2,'fov',-5},{.3,'punch',{4,0,0}},{.3,'shake',.3},{.3,'blur',4}}},
+Diesel={Z={{.05,'lines',.4},{.22,'punch',{-1,1,1}},{.38,'punch',{-2,-1,-2}},{.38,'shake',.18}},
+ X={{0,'fov',4},{0,'tint',C3(255,200,150)}},
+ C={{.3,'fov',-3},{.35,'punch',{-3,0,0}},{.35,'shake',.22}},
+ V={{.15,'fov',-6},{.5,'punch',{-4,0,3}},{.5,'shake',.35},{.5,'fov',8},{.5,'blur',5}}},
+Bitok={Z={{.05,'lines',.5},{.2,'punch',{-1,2,2}},{.2,'shake',.2}},
+ X={{.2,'tint',C3(220,190,140)}},
+ C={{.25,'shake',.15},{.4,'fov',-5},{.55,'punch',{5,0,0}},{.55,'shake',.45},{.55,'blur',6}},
+ V={{0,'fov',-6},{.5,'punch',{5,0,-2}},{.5,'shake',.5},{.5,'fov',10},{.5,'blur',6}}},
+Major={Z={{.18,'punch',{-1,0,0}},{.18,'shake',.08}},
+ X={{.2,'fov',-3},{.35,'punch',{3,0,-2}},{.35,'shake',.25}},
+ C={{.25,'shake',.12},{.45,'fov',-4},{.65,'punch',{4,0,0}},{.65,'shake',.4},{.65,'tint',C3(170,190,255)}},
+ V={{.15,'fov',-4},{.3,'punch',{-4,0,0}},{.3,'shake',.4},{.3,'fov',7},{.3,'tint',C3(255,240,200)}},
+ R={{.1,'punch',{-1.5,0,0}},{.1,'shake',.1}}},
+Yura={Z={{.26,'punch',{-1,1,0}},{.26,'shake',.1}},
+ X={{0,'fov',-3},{.25,'fov',5},{.25,'tint',C3(170,220,120)},{.25,'shake',.15}},
+ C={{.1,'lines',.4},{.25,'punch',{4,0,0}},{.25,'shake',.3},{.75,'shake',.1},{1.15,'shake',.1}},
+ V={{.2,'fov',-4},{.55,'punch',{-2,3,3}},{.55,'shake',.35},{.55,'fov',7}},
+ R={{.2,'shake',.35},{.2,'tint',C3(160,220,100)},{.2,'blur',5}}},
+Jack={Z={{.25,'tint',C3(255,220,140)},{.25,'shake',.1}},
+ X={{0,'punch',{4,0,6}},{0,'fov',5}},
+ C={{.6,'punch',{3,0,0}},{.6,'shake',.15},{.9,'punch',{3,0,0}},{.9,'shake',.15},{1.2,'punch',{4,0,0}},{1.2,'shake',.25}},
+ V={{.3,'punch',{-1,2,0}},{.3,'shake',.12}}},
+}
+local function camOp(op,a,sc)
+if op=='fov' then kick(a*sc)
+elseif op=='shake' then addTrauma(a*sc)
+elseif op=='punch' then camPunch(V3(rad(a[1]*sc),rad((a[2] or 0)*sc),rad((a[3] or 0)*sc)))
+elseif op=='lines' then if sc>=1 then speedlines(a,.3,WHITE) end
+elseif op=='tint' then ccPulse(.04*sc,.2*sc,-.15*sc,a,.3)
+elseif op=='blur' then blurPulse(a*sc,.22) end
+end
 local function ctxOf(userId,fighter,ult)
  local p=Players:GetPlayerByUserId(userId or 0);local char=p and p.Character;local root=char and char:FindFirstChild('HumanoidRootPart')
  if not root or camDist(root.Position)>FAR then return end
@@ -709,7 +791,15 @@ local function cast(d)
  local list=CAST[d.fighter] and CAST[d.fighter][d.key]
  if list then runSteps(c,list) end
  if d.ult then STEP.aura(c,{t=.4}) end
- if c.me then kick(2.5);bloomPulse(.2,.2) end
+ local sc=c.me and 1 or (nearMe(c.root.Position,12) and .4 or 0)
+if sc>0 then
+ if c.me then bloomPulse(.2,.2) end
+ local cam=CAM[d.fighter] and CAM[d.fighter][d.key]
+ for _,e in ipairs(cam or {}) do
+  local function go() pcall(camOp,e[2],e[3],sc) end
+  if e[1]<=0 then go() else task.delay(e[1],go) end
+ end
+end
 end
 -- Обычные удары (M1): быстрый штрих кулака/оружия
 local function swing(d)
