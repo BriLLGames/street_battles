@@ -1,4 +1,6 @@
--- StreetUI v2.0: новый выбор бойца (список + карточка со статами и скиллами) и новая панель скиллов.
+-- StreetUI v2.1: выбор бойца (список + карточка), панель скиллов.
+-- v2.1: окно выбора с градиентом в цвет бойца, анимация открытия, роль/урон/контроль/сложность, анимированные полоски;
+--       кнопки скиллов «пружинят» при нажатии и вспыхивают, когда перезарядка закончилась; рывок в сторону движения.
 -- ПК: колонка справа с рядами «клавиша · название · перезарядка». Телефон: круглые кнопки дугой вокруг большой кнопки УДАР (зона большого пальца).
 -- Эффекты ударов и камера — в VfxClient. Слепота/сообщения — как раньше.
 local Players=game:GetService('Players')
@@ -51,6 +53,8 @@ local chooseHint=new('TextLabel',{Position=UDim2.new(0,26,.5,0),Size=UDim2.new(1
 local overlay=new('TextButton',{Name='SelectorOverlay',Visible=false,Size=UDim2.fromScale(1,1),BackgroundColor3=C3(0,0,0),BackgroundTransparency=.4,Text='',AutoButtonColor=false,ZIndex=20},gui)
 local win=new('Frame',{Active=true,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),Size=UDim2.fromScale(.94,.9),BackgroundColor3=panelBg,ZIndex=21},overlay)
 corner(win,14);stroke(win,light,1,.7)
+new('UIGradient',{Rotation=90,Color=ColorSequence.new(C3(255,255,255),C3(170,176,190))},win)
+local winScale=new('UIScale',{Scale=1},win)
 new('UISizeConstraint',{MaxSize=Vector2.new(940,600),MinSize=Vector2.new(320,230)},win)
 local head=new('Frame',{Size=UDim2.new(1,0,0,mobile and 46 or 52),BackgroundTransparency=1,ZIndex=22},win)
 new('TextLabel',{Position=UDim2.fromOffset(16,0),Size=UDim2.new(1,-80,1,0),BackgroundTransparency=1,Text='ВЫБОР БОЙЦА',TextColor3=light,TextSize=mobile and 18 or 22,Font=FONTB,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=22},head)
@@ -59,7 +63,9 @@ local body=new('Frame',{Position=UDim2.new(0,0,0,mobile and 46 or 52),Size=UDim2
 local listW=mobile and .34 or .3
 local list=new('ScrollingFrame',{Position=UDim2.fromOffset(10,0),Size=UDim2.new(listW,-14,1,-10),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=mobile and 3 or 5,AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new(),ZIndex=22},body)
 new('UIListLayout',{Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder},list)
-local detailBox=new('Frame',{Position=UDim2.new(listW,0,0,0),Size=UDim2.new(1-listW,-10,1,-10),BackgroundColor3=C3(24,28,35),ZIndex=22},body);corner(detailBox,10)
+local detailBox=new('Frame',{Position=UDim2.new(listW,0,0,0),Size=UDim2.new(1-listW,-10,1,-10),BackgroundColor3=Color3.new(1,1,1),ZIndex=22},body);corner(detailBox,10)
+local detailGrad=new('UIGradient',{Rotation=120,Color=ColorSequence.new(C3(40,46,58),C3(22,25,32))},detailBox)
+local detailStroke=stroke(detailBox,light,1,.75)
 local detail=new('ScrollingFrame',{Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,1,-(mobile and 58 or 62)),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=mobile and 3 or 5,AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new(),ZIndex=23},detailBox)
 new('UIPadding',{PaddingLeft=UDim.new(0,12),PaddingRight=UDim.new(0,12),PaddingTop=UDim.new(0,10),PaddingBottom=UDim.new(0,8)},detail)
 new('UIListLayout',{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},detail)
@@ -78,7 +84,9 @@ local function statBar(parent,title,value,maxv,color)
  local row=new('Frame',{Size=UDim2.new(1,0,0,22),BackgroundTransparency=1,LayoutOrder=nextOrder(),ZIndex=24},parent)
  new('TextLabel',{Size=UDim2.new(0,mobile and 74 or 90,1,0),BackgroundTransparency=1,Text=title,TextSize=12,TextColor3=dim,Font=FONT,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=24},row)
  local back=new('Frame',{Position=UDim2.new(0,mobile and 76 or 92,.5,0),AnchorPoint=Vector2.new(0,.5),Size=UDim2.new(1,-(mobile and 130 or 150),0,12),BackgroundColor3=C3(52,58,68),ZIndex=24},row);corner(back,6)
- local fill=new('Frame',{Size=UDim2.new(math.clamp(value/maxv,.05,1),0,1,0),BackgroundColor3=color,ZIndex=25},back);corner(fill,6)
+ local fill=new('Frame',{Size=UDim2.new(0,0,1,0),BackgroundColor3=color,ZIndex=25},back);corner(fill,6)
+new('UIGradient',{Rotation=90,Color=ColorSequence.new(Color3.new(1,1,1),C3(170,170,170))},fill)
+TweenService:Create(fill,TweenInfo.new(.5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Size=UDim2.new(math.clamp(value/maxv,.05,1),0,1,0)}):Play()
  new('TextLabel',{AnchorPoint=Vector2.new(1,0),Position=UDim2.new(1,0,0,0),Size=UDim2.new(0,44,1,0),BackgroundTransparency=1,Text=tostring(value),TextSize=14,TextColor3=light,Font=FONT,TextXAlignment=Enum.TextXAlignment.Right,ZIndex=24},row)
 end
 local function skillCard(parent,key,name,cd,desc,color)
@@ -110,9 +118,13 @@ local function buildDetail(id)
  local hd=new('Frame',{Size=UDim2.new(1,0,0,mobile and 44 or 52),BackgroundTransparency=1,LayoutOrder=nextOrder(),ZIndex=24},detail)
  new('Frame',{Size=UDim2.new(0,5,1,-4),Position=UDim2.fromOffset(0,2),BackgroundColor3=col,ZIndex=24},hd)
  new('TextLabel',{Position=UDim2.fromOffset(14,0),Size=UDim2.new(1,-14,.62,0),BackgroundTransparency=1,Text=string.upper(c.name),TextSize=mobile and 22 or 26,TextColor3=col,Font=FONTB,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=24},hd)
- new('TextLabel',{Position=UDim2.new(0,14,.62,0),Size=UDim2.new(1,-14,.38,0),BackgroundTransparency=1,Text='Предмет: '..c.item,TextSize=13,TextColor3=dim,Font=FONTR,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=24},hd)
+ new('TextLabel',{Position=UDim2.new(0,14,.62,0),Size=UDim2.new(1,-14,.38,0),BackgroundTransparency=1,Text='Предмет: '..c.item..(c.role and ('   ·   '..c.role) or ''),TextSize=13,TextColor3=dim,Font=FONTR,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=24},hd)
  statBar(detail,'ЗДОРОВЬЕ',c.hp,120,C3(220,84,84))
  statBar(detail,'СКОРОСТЬ',c.speed,17,C3(90,190,230))
+statBar(detail,'УРОН',c.dmg or 3,5,C3(255,140,60))
+statBar(detail,'КОНТРОЛЬ',c.ctrl or 3,5,C3(170,120,255))
+statBar(detail,'СЛОЖНОСТЬ',c.diff or 2,5,gold)
+detailGrad.Color=ColorSequence.new(col:Lerp(C3(24,28,35),.72),C3(20,23,29));detailStroke.Color=col;detailStroke.Transparency=.35
  label(detail,c.passive,13,C3(205,210,218),FONTR)
  local keys={'Z','X','C','V'}
  for i,s in ipairs(c.skills) do skillCard(detail,keys[i],s[1],s[2],s[3],KEYCOL[keys[i]]) end
@@ -128,15 +140,24 @@ for _,id in ipairs(cfg.Order) do
  local st=stroke(b,light,1,.8)
  new('Frame',{Size=UDim2.new(0,6,1,-14),Position=UDim2.fromOffset(7,7),BackgroundColor3=theme(id),ZIndex=24},b)
  new('TextLabel',{Position=UDim2.fromOffset(22,7),Size=UDim2.new(1,-28,0,22),BackgroundTransparency=1,Text=c.name,TextColor3=light,TextSize=mobile and 14 or 16,Font=FONT,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=24},b)
- new('TextLabel',{Position=UDim2.fromOffset(22,29),Size=UDim2.new(1,-28,0,18),BackgroundTransparency=1,Text=c.item,TextColor3=dim,TextSize=12,Font=FONTR,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=24},b)
+ new('TextLabel',{Position=UDim2.fromOffset(22,29),Size=UDim2.new(1,-28,0,18),BackgroundTransparency=1,Text=(c.role and (c.role..' · ') or '')..c.item,TextColor3=dim,TextSize=12,Font=FONTR,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=24},b)
  local tag=new('TextLabel',{AnchorPoint=Vector2.new(1,0),Position=UDim2.new(1,-6,0,5),Size=UDim2.fromOffset(mobile and 22 or 58,16),BackgroundColor3=gold,Text=mobile and '✓' or 'ВЫБРАН',TextColor3=C3(20,22,26),TextSize=10,Font=FONTB,Visible=false,ZIndex=25},b);corner(tag,5)
  rowBtns[id]={btn=b,stroke=st,tag=tag}
+new('UIGradient',{Rotation=0,Color=ColorSequence.new(theme(id):Lerp(Color3.new(1,1,1),.55),Color3.new(1,1,1))},b)
+local rs=new('UIScale',{Scale=1},b)
+b.MouseEnter:Connect(function() TweenService:Create(rs,TweenInfo.new(.12),{Scale=1.03}):Play() end)
+b.MouseLeave:Connect(function() TweenService:Create(rs,TweenInfo.new(.12),{Scale=1}):Play() end)
  b.Activated:Connect(function() Sfx.ui('click');setPreview(id) end)
 end
 local function openSelector(on)
  if on==nil then on=not overlay.Visible end
  overlay.Visible=on
- if on then setPreview(curFighter()) end
+if on then
+ setPreview(curFighter())
+ winScale.Scale=.9;overlay.BackgroundTransparency=1
+ TweenService:Create(winScale,TweenInfo.new(.25,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+ TweenService:Create(overlay,TweenInfo.new(.2),{BackgroundTransparency=.4}):Play()
+end
 end
 choose.Activated:Connect(function() Sfx.ui('click');openSelector() end)
 closeBtn.Activated:Connect(function() Sfx.ui('click');openSelector(false) end)
@@ -159,6 +180,11 @@ selectorWin()
 -- ============================================================
 local keys={'Z','X','C','V','B','Q','F','R'}
 local buttons={};local cooldowns={};local cdTotal={}
+local function dashDir() -- v2.1: рывок в сторону, куда идёшь (WASD / стик); стоишь — вперёд
+ local ch=player.Character;local h=ch and ch:FindFirstChildOfClass('Humanoid')
+ local md=h and h.MoveDirection or Vector3.zero
+ return md.Magnitude>.2 and md or nil
+end
 local function action(key,held)
  if held and key~='F' then -- звук «нельзя», если скилл на перезарядке или ульта ещё не заряжена
   local blocked
@@ -170,7 +196,7 @@ local function action(key,held)
  elseif key=='C' then remote:FireServer('Skill',3)
  elseif key=='V' then remote:FireServer('Skill',4)
  elseif key=='B' then remote:FireServer('Ult')
- elseif key=='Q' then remote:FireServer('Dash')
+ elseif key=='Q' then remote:FireServer('Dash',dashDir())
  elseif key=='F' then remote:FireServer('Block',held)
  elseif key=='R' then remote:FireServer('Special') end
 end
@@ -197,8 +223,9 @@ local function makeButton(key,parent,mode,size,pos)
  local b={key=key,mode=mode}
  local btn=new('TextButton',{Name='Skill'..key,Text='',AutoButtonColor=false,BackgroundColor3=dark,BackgroundTransparency=.08,Size=size,ZIndex=2},parent)
  if pos then btn.Position=pos;btn.AnchorPoint=Vector2.new(.5,.5) end
- b.btn=btn
- if mode=='circle' then round(btn) else corner(btn,10) end
+ b.btn=btn;b.scale=new('UIScale',{Scale=1},btn)
+if mode=='circle' then round(btn) else corner(btn,10) end
+new('UIGradient',{Rotation=90,Color=ColorSequence.new(Color3.new(1,1,1),C3(175,178,188))},btn)
  b.stroke=stroke(btn,col,mode=='circle' and 2 or 1.5,.15)
  local sweep=new('Frame',{Size=UDim2.fromScale(1,1),BackgroundColor3=C3(0,0,0),ZIndex=3,Active=false},btn)
  if mode=='circle' then round(sweep) else corner(sweep,10) end
@@ -218,6 +245,7 @@ local function makeButton(key,parent,mode,size,pos)
  -- нажатие
  local function press(on)
   TweenService:Create(btn,TweenInfo.new(.08),{BackgroundColor3=on and C3(50,58,70) or dark}):Play()
+TweenService:Create(b.scale,TweenInfo.new(on and .06 or .22,on and Enum.EasingStyle.Quad or Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=on and .9 or 1}):Play()
  end
  if key=='F' then
   local function down(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then if not overlay.Visible then action('F',true) end press(true) end end
@@ -314,6 +342,12 @@ RunService.RenderStepped:Connect(function(dt)
      b.nameL.Text=name;b.timeL.Text=remaining>0 and string.format('%.1f',remaining) or ''
     end
     b.stroke.Transparency=remaining>0 and .6 or .15
+if b.wasCd and remaining<=0 then -- перезарядка закончилась: вспышка и «пружинка»
+ b.stroke.Color=Color3.new(1,1,1);b.scale.Scale=1.14
+ TweenService:Create(b.scale,TweenInfo.new(.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+ TweenService:Create(b.stroke,TweenInfo.new(.45),{Color=KEYCOL[key]}):Play()
+end
+b.wasCd=remaining>0
    end
   end
  end
