@@ -1,4 +1,6 @@
 -- Street Battles v1.5: боёвка в стиле The Strongest Battlegrounds. Сервер решает всё (урон, стан, КД, ульты).
+-- v2.1: урон сильно снижен (GameConfig.DamageScale/UltDamageScale), хитбоксы-коробки, рывки и шаги останавливаются перед врагом,
+--       бойцы не сталкиваются друг с другом (не залезаешь на голову), рывок в 4 стороны, всплывающие статусы, новые модели предметов.
 -- v2.0: новые модели оружия, предметы в скиллах (нож, телефон, наручники, бутылка Юры).
 -- v1.9: хитбоксы скиллов с окном попадания, у каунтеров КД при промахе БОЛЬШЕ обычного, мелкий баланс.
 -- v1.4: контр-скиллы с КД при промахе, движение при скиллах, события для VfxClient (эффекты).
@@ -7,6 +9,7 @@ local RS=game:GetService('ReplicatedStorage')
 local DSS=game:GetService('DataStoreService')
 local RunService=game:GetService('RunService')
 local Debris=game:GetService('Debris')
+local PhysicsService=game:GetService('PhysicsService')
 local C=require(RS:WaitForChild('GameConfig'))
 local remote=RS:FindFirstChild('StreetAction') or Instance.new('RemoteEvent')
 remote.Name='StreetAction';remote.Parent=RS
@@ -26,6 +29,20 @@ local function fxAt(pos,kind,extra) local d=extra or {};d.position=pos;d.kind=ki
 -- звуки: клиент (Sfx) сам решает, какой звук играть; сервер только сообщает, что произошло и где
 local function sfxAt(pos,name,extra) local d=extra or {};d.position=pos;d.name=name;remote:FireAllClients('SFX',d) end
 local function sfxOn(e,name,extra) local r=root(e);if r then sfxAt(r.Position,name,extra) end end
+-- v2.1: бойцы не сталкиваются друг с другом — при ударах и рывках нельзя залезть врагу на голову
+local CG='StreetFighters'
+pcall(function() PhysicsService:RegisterCollisionGroup(CG) end)
+pcall(function() PhysicsService:CollisionGroupSetCollidable(CG,CG,false) end)
+local function setGroup(model)
+ if not model then return end
+ local function one(d) if d:IsA('BasePart') then d.CollisionGroup=CG end end
+ for _,d in ipairs(model:GetDescendants()) do one(d) end
+ model.DescendantAdded:Connect(one)
+end
+-- v2.1: всплывающая надпись над бойцом (ИСПУГ!, КРОВЬ, БЛОК ПРОБИТ ...) — видят все
+local function pop(e,text,color)
+ local r=root(e);if r then remote:FireAllClients('Pop',{position=r.Position,text=text,color=color}) end
+end
 -- ===== Предметы бойцов: добавляются ПОВЕРХ аватара игрока, внешность не меняется =====
 local MAT=Enum.Material
 local function mk(parent,base,name,size,color,mat,offset,shape,transp)
@@ -58,21 +75,22 @@ local function diamond(parent,base,name,cf,size,color,mat) -- ромб (квад
  return mk(parent,base,name,size,color,mat,cf*CFrame.Angles(math.rad(45),0,0))
 end
 -- ===== Модели оружия. Все собираются из деталей, приваренных к руке/торсу, поэтому двигаются вместе с анимацией =====
-local function buildKnuckles(f,right) -- КАСТЕТ: полированная основа, 4 кольца, шипы, гравировка, перекладина в ладони
+local function shine(p,r) p.Reflectance=r or .2;return p end
+local function buildKnuckles(f,right) -- КАСТЕТ (v2.1): стальная ударная планка с шипами, 4 кольца на пальцах, упор в ладонь
  local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
- local steel=C3(184,187,194);local dark=C3(70,72,80);local bright=C3(228,230,236)
- local plate=mk(f,right,'Кастет основа',V(1.12,.28,.36),steel,MAT.Metal,CF(0,-.78,-.6))
- mk(f,right,'Кастет накладка',V(1.14,.1,.42),dark,MAT.Metal,CF(0,-.62,-.6))
- mk(f,right,'Кастет блик',V(1.0,.04,.3),bright,MAT.Metal,CF(0,-.93,-.6))
- mk(f,right,'Кастет перекладина',V(1.0,.14,.14),dark,MAT.Metal,CF(0,-.45,-.46))
+ local steel=C3(160,164,172);local dark=C3(52,54,60);local chrome=C3(228,232,238)
+ local bar=shine(mk(f,right,'Кастет основа',V(1.1,.24,.24),steel,MAT.Metal,CF(0,-1.06,-.42)),.25)
+ shine(mk(f,right,'Кастет фаска',V(1.12,.05,.26),chrome,MAT.Metal,CF(0,-1.19,-.42)),.4)
+ mk(f,right,'Кастет упор',V(.9,.16,.2),dark,MAT.Metal,CF(0,-1.04,.24))
+ for _,x in ipairs({-.55,.55}) do mk(f,right,'Кастет боковина',V(.1,.22,.72),dark,MAT.Metal,CF(x,-1.04,-.1)) end
  for i=0,3 do
   local x=-.39+.26*i
-  ring(f,right,'Кастет кольцо',CF(x,-1.02,-.54)*ang(0,rad(90),0),.5,.2,steel,MAT.Metal)
-  ring(f,right,'Кастет дыра',CF(x,-1.02,-.54)*ang(0,rad(90),0),.28,.22,C3(25,25,28),MAT.SmoothPlastic)
-  mk(f,right,'Кастет шип',V(.1,.2,.1),bright,MAT.Metal,CF(x,-.74,-.9)*ang(rad(-30),0,0))
-  diamond(f,right,'Кастет шип остриё',CF(x,-.74,-1.0),V(.1,.12,.12),bright,MAT.Metal)
+  shine(ring(f,right,'Кастет кольцо',CF(x,-.84,-.56)*ang(0,rad(90),0),.34,.1,steel,MAT.Metal),.25)
+  ring(f,right,'Кастет дыра',CF(x,-.84,-.56)*ang(0,rad(90),0),.18,.12,C3(20,20,24),MAT.SmoothPlastic)
+  shine(mk(f,right,'Кастет шип',V(.12,.14,.12),chrome,MAT.Metal,CF(x,-1.24,-.42)),.45)
+  diamond(f,right,'Кастет шип остриё',CF(x,-1.34,-.42),V(.09,.09,.09),chrome,MAT.Metal)
  end
- trail(plate,V(-.55,0,0),V(.55,0,0),C3(220,224,235))
+ trail(bar,V(-.55,0,0),V(.55,0,0),C3(220,224,235))
 end
 local function buildWraps(f,arm,trailToo) -- БИНТЫ: витки с разным наклоном, тейп на запястье, кулак, хвост
  local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
@@ -86,20 +104,19 @@ local function buildWraps(f,arm,trailToo) -- БИНТЫ: витки с разн�
  mk(f,arm,'Бинт хвост',V(.06,.45,.18),C3(226,218,198),MAT.Fabric,CF(.5,-.95,.1)*ang(0,0,rad(18)))
  if trailToo then trail(fist,V(-.57,0,0),V(.57,0,0),C3(255,235,200)) end
 end
-local function buildBat(f,torso) -- БИТА за спиной: рукоять с обмоткой, конус, кольца-канавки, клеймо, гвозди
+local function buildBat(f,torso) -- БИТА за спиной (v2.1): плавное сужение, обмотка, канавки, гвозди
  local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
- local a=V(-.75,-1.0,.85);local b=V(.75,2.15,.85);local dir=(b-a).Unit
+ local a=V(-.8,-1.05,.82);local b=V(.8,2.2,.82)
  local function at(t) return a+(b-a)*t end
- rod(f,torso,'Бита рукоять',a,at(.3),.24,C3(26,26,28),MAT.Fabric)
- for i=0,5 do rod(f,torso,'Бита обмотка',at(.03+i*.045),at(.03+i*.045+.025),.3,(i%2==0) and C3(190,50,40) or C3(36,36,40),MAT.Fabric) end
- rod(f,torso,'Бита конус',at(.3),at(.52),.4,C3(176,122,70),MAT.Wood)
- rod(f,torso,'Бита ствол',at(.52),at(.97),.58,C3(168,114,64),MAT.Wood)
- rod(f,torso,'Бита ствол низ',at(.62),at(.9),.6,C3(150,100,56),MAT.Wood)
- rod(f,torso,'Бита канавка',at(.74),at(.755),.62,C3(98,64,38),MAT.Wood)
- rod(f,torso,'Бита канавка',at(.82),at(.835),.62,C3(98,64,38),MAT.Wood)
- rod(f,torso,'Бита торец',at(.97),at(1.0),.5,C3(120,80,45),MAT.Wood)
- mk(f,torso,'Бита набалдашник',V(.4,.4,.4),C3(26,26,28),MAT.Fabric,CF(a),Enum.PartType.Ball)
- for _,t in ipairs({.66,.78,.86}) do mk(f,torso,'Бита гвоздь',V(.12,.12,.12),C3(200,200,206),MAT.Metal,CF(at(t)+V(0,0,.31)),Enum.PartType.Ball) end
+ rod(f,torso,'Бита рукоять',a,at(.3),.22,C3(24,24,26),MAT.Fabric)
+ for i=0,6 do rod(f,torso,'Бита обмотка',at(.02+i*.04),at(.02+i*.04+.022),.27,(i%2==0) and C3(185,45,38) or C3(30,30,34),MAT.Fabric) end
+ local seg={{.3,.42,.3,C3(186,132,78)},{.42,.55,.4,C3(180,126,74)},{.55,.7,.5,C3(172,118,68)},{.7,.97,.58,C3(164,110,62)}}
+ for _,sg in ipairs(seg) do rod(f,torso,'Бита ствол',at(sg[1]),at(sg[2]),sg[3],sg[4],MAT.Wood) end
+ rod(f,torso,'Бита канавка',at(.78),at(.79),.6,C3(100,66,40),MAT.Wood)
+ rod(f,torso,'Бита канавка',at(.86),at(.87),.6,C3(100,66,40),MAT.Wood)
+ rod(f,torso,'Бита торец',at(.97),at(1),.52,C3(124,82,46),MAT.Wood)
+ mk(f,torso,'Бита набалдашник',V(.34,.34,.34),C3(24,24,26),MAT.Fabric,CF(a),Enum.PartType.Ball)
+ for _,t in ipairs({.74,.82,.9}) do mk(f,torso,'Бита гвоздь',V(.1,.1,.1),C3(205,205,210),MAT.Metal,CF(at(t)+V(0,0,.3)),Enum.PartType.Ball) end
  mk(f,torso,'Ремень грудь',V(2.9,.24,.08),C3(62,46,36),MAT.Fabric,CF(0,0,-.53)*ang(0,0,rad(-40)))
  mk(f,torso,'Ремень спина',V(2.9,.24,.08),C3(62,46,36),MAT.Fabric,CF(0,0,.53)*ang(0,0,rad(-40)))
  mk(f,torso,'Пряжка',V(.34,.34,.1),C3(200,176,90),MAT.Metal,CF(.3,.25,-.58)*ang(0,0,rad(-40)))
@@ -123,20 +140,21 @@ local function buildHolster(f,torso) -- ПИСТОЛЕТ в кобуре на п
  mk(f,torso,'Пистолет накладка',V(.34,.4,.2),C3(60,44,32),MAT.Wood,CF(1.2,-.42,-.28)*ang(rad(-14),0,0))
  mk(f,torso,'Пистолет курок',V(.1,.2,.1),C3(170,170,176),MAT.Metal,CF(1.2,-.62,-.6))
 end
-local function buildBottleHeld(f,right) -- БУТЫЛКА в правой руке Джека
- local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
- local g=C3(44,128,70);local z=-.62
- local body=rod(f,right,'Бутылка корпус',V(0,-1.3,z),V(0,-.3,z),.66,g,MAT.Glass,.15)
- rod(f,right,'Бутылка дно',V(0,-1.33,z),V(0,-1.27,z),.7,C3(30,90,50),MAT.Glass,.1)
- rod(f,right,'Бутылка плечо',V(0,-.3,z),V(0,-.02,z),.44,g,MAT.Glass,.15)
- rod(f,right,'Бутылка горлышко',V(0,-.02,z),V(0,.66,z),.24,g,MAT.Glass,.15)
- rod(f,right,'Бутылка венчик',V(0,.6,z),V(0,.7,z),.3,g,MAT.Glass,.1)
- rod(f,right,'Бутылка пробка',V(0,.7,z),V(0,.82,z),.32,C3(205,170,60),MAT.Metal)
- rod(f,right,'Бутылка жидкость',V(0,-1.22,z),V(0,-.45,z),.52,C3(205,165,65),MAT.Neon,.5)
- rod(f,right,'Бутылка блик',V(.2,-1.1,z-.24),V(.2,-.5,z-.24),.08,C3(235,255,240),MAT.Neon,.45)
- mk(f,right,'Бутылка этикетка',V(.54,.5,.08),C3(236,230,210),MAT.SmoothPlastic,CF(0,-.82,z-.34))
- mk(f,right,'Бутылка этикетка рисунок',V(.3,.16,.1),C3(196,52,44),MAT.SmoothPlastic,CF(0,-.82,z-.37))
- trail(body,V(-.5,0,0),V(.5,0,0),C3(170,240,190))
+local function buildBottleHeld(f,right) -- БУТЫЛКА (v2.1): Джек держит её за горлышко, донышко вперёд-вниз
+ local V,C3=Vector3.new,Color3.fromRGB
+ local g=C3(38,110,62)
+ local top=V(0,-.78,-.05);local dir=V(0,-.72,-.69).Unit
+ local function at(t) return top+dir*t end
+ rod(f,right,'Бутылка пробка',at(-.12),at(0),.2,C3(205,170,60),MAT.Metal)
+ rod(f,right,'Бутылка горлышко',at(0),at(.6),.2,g,MAT.Glass,.2)
+ rod(f,right,'Бутылка венчик',at(.02),at(.08),.25,g,MAT.Glass,.15)
+ rod(f,right,'Бутылка плечо',at(.6),at(.82),.38,g,MAT.Glass,.2)
+ local body=rod(f,right,'Бутылка корпус',at(.82),at(1.75),.52,g,MAT.Glass,.2)
+ rod(f,right,'Бутылка дно',at(1.73),at(1.78),.54,C3(26,80,44),MAT.Glass,.1)
+ rod(f,right,'Бутылка жидкость',at(1.0),at(1.7),.42,C3(205,160,60),MAT.SmoothPlastic,.35)
+ rod(f,right,'Бутылка этикетка',at(1.1),at(1.45),.535,C3(236,228,205),MAT.SmoothPlastic)
+ rod(f,right,'Бутылка этикетка рисунок',at(1.22),at(1.33),.545,C3(190,50,42),MAT.SmoothPlastic)
+ trail(body,V(-.4,0,0),V(.4,0,0),C3(170,240,190))
 end
 local function buildUshanka(f,head)
  local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
@@ -217,11 +235,35 @@ local function impulse(e,vel,dur,mask)
  local bv=Instance.new('BodyVelocity');bv.MaxForce=mask or V(1e5,1e5,1e5);bv.Velocity=vel;bv.P=1e4;bv.Parent=r
  Debris:AddItem(bv,dur)
 end
-local function dash(p,speed,dur)
+-- v2.1: собственное движение бойца (рывки, шаги скиллов). Если враг ближе STOP — скорость в его сторону гасится,
+-- поэтому при ударе боец останавливается перед врагом, а не заезжает в него / на него.
+local STOP=C.StopDist or 3.6
+local function selfMove(p,vel,dur,mask)
  local r=root(p);if not r then return end
- local d=r.CFrame.LookVector
- impulse(p,V(d.X*speed,0,d.Z*speed),dur,V(1e5,0,1e5))
- if isPlayer(p) and speed>=30 then remote:FireAllClients('Dash',{userId=p.UserId,speed=speed,dur=dur,dir=V(d.X,0,d.Z)}) end
+ local bv=Instance.new('BodyVelocity');bv.MaxForce=mask or V(1e5,1e5,1e5);bv.Velocity=vel;bv.P=1e4;bv.Parent=r
+ local t0=os.clock();local conn
+ conn=RunService.Heartbeat:Connect(function()
+  if not bv.Parent or not r.Parent or os.clock()-t0>=dur then conn:Disconnect();if bv.Parent then bv:Destroy() end;return end
+  local flat=V(vel.X,0,vel.Z)
+  if flat.Magnitude>1 then
+   for _,e in ipairs(entities()) do
+    if e~=p and alive(e) then
+     local d=root(e).Position-r.Position;local fd=V(d.X,0,d.Z)
+     if math.abs(d.Y)<6 and fd.Magnitude>.05 and fd.Magnitude<STOP then
+      local u=fd.Unit;local toward=flat:Dot(u)
+      if toward>0 then flat=flat-u*toward end
+     end
+    end
+   end
+   bv.Velocity=V(flat.X,vel.Y,flat.Z)
+  end
+ end)
+end
+local function dash(p,speed,dur,dir)
+ local r=root(p);if not r then return end
+ local d=dir or r.CFrame.LookVector;d=V(d.X,0,d.Z);if d.Magnitude<.01 then d=r.CFrame.LookVector end;d=d.Unit
+ selfMove(p,d*speed,dur,V(1e5,0,1e5))
+ if isPlayer(p) and speed>=30 then remote:FireAllClients('Dash',{userId=p.UserId,speed=speed,dur=dur,dir=d}) end
 end
 local update
 function update(e)
@@ -291,7 +333,7 @@ local function hit(att,tgt,o)
  if t.dodgeUntil>n and not o.unavoid and (t.dodgeKind=='all' or not o.ranged) then
   t.dodgeUntil=0;fxAt(tr.Position,'Dash',fxd)
   local c=t.counter;t.counter=nil
-  if c then msg(tgt,'Контратака!');fxAt(tr.Position,'Counter',{dir=dv,f=t.fighter});c(att) else msg(tgt,'Уклон!') end
+  if c then msg(tgt,'Контратака!');pop(tgt,'КОНТРА!',Color3.fromRGB(255,230,120));fxAt(tr.Position,'Counter',{dir=dv,f=t.fighter});c(att) else msg(tgt,'Уклон!');pop(tgt,'УКЛОН',Color3.fromRGB(200,220,255)) end
   return false
  end
  if t.fighter=='Jack' and not o.unavoid then
@@ -300,43 +342,46 @@ local function hit(att,tgt,o)
  end
  if t.block then
   if not o.br then
-   msg(tgt,'Блок!');fxAt(tr.Position,'Guard',fxd)
+   msg(tgt,'Блок!');fxAt(tr.Position,'Guard',fxd);send(att,'Shake',{mag=.3,atk=true,kind='Guard'})
    if s.fighter=='Diesel' then s.stacks=math.min(5,s.stacks+1);s.stacksAt=n end
    return false
   end
   t.block=false;t.blockReady=n+4;t.stunUntil=math.max(t.stunUntil,n+.8);t.tok+=1
-  anim(tgt,'BlockEnd');msg(tgt,'Блок пробит!');fxAt(tr.Position,'Break',fxd)
+  anim(tgt,'BlockEnd');msg(tgt,'Блок пробит!');pop(tgt,'БЛОК ПРОБИТ',Color3.fromRGB(255,80,60));fxAt(tr.Position,'Break',fxd)
  end
  local cs=C.Characters[s.fighter]
  local mult=(s.ultUntil>n) and cs.ult.mult or 1
  local def=1
  if t.fighter=='Diesel' then def-=.015*t.stacks end
  if t.fighter=='Jack' then def-=.08 end
- local dmg=(o.d or 0)*mult*def
+ local raw=(o.d or 0)*mult*def -- «сырой» урон: от него считаются заряд ульты, тряска и сила эффектов
+local ultScale=o.ult or (s.fighter=='Diesel' and s.ultUntil>n)
+local dmg=raw*(ultScale and (C.UltDamageScale or .38) or (C.DamageScale or .5)) -- v2.1: реальный урон сильно снижен
  if s.burReady and (o.d or 0)>0 and not o.nobur then o.sil=math.max(o.sil or 0,3);s.burReady=false;s.bur=0;msg(att,'Штраф за хулиганство!') end
  if dmg>0 then h:TakeDamage(dmg) end
  if t.fighter=='Major' then
-  t.bur=math.min(100,t.bur+dmg*2.5)
+  t.bur=math.min(100,t.bur+raw*2.5)
   if t.bur>=100 and not t.burReady then t.burReady=true;msg(tgt,'Протокол нарушен! Следующий удар — штраф') end
  end
  if o.st and o.st>0 then stun(tgt,t,o.st) end
  if n>=t.ctrlImmune then
   if o.slow then t.slowUntil=math.max(t.slowUntil,n+o.slow[2]);t.slowMul=o.slow[1] end
-  if o.sil then t.silenceUntil=math.max(t.silenceUntil,n+o.sil) end
-  if o.blind then send(tgt,'Blind',{duration=o.blind,kind=o.bk or 'dark'}) end
+  if o.sil then t.silenceUntil=math.max(t.silenceUntil,n+o.sil);pop(tgt,'МОЛЧАНИЕ',Color3.fromRGB(170,140,255)) end
+  if o.blind then send(tgt,'Blind',{duration=o.blind,kind=o.bk or 'dark'});pop(tgt,'СЛЕПОТА',Color3.fromRGB(230,230,160)) end
   if o.down then knockdown(tgt,t,o.down) end
   if (o.kb or 0)>0 or (o.up or 0)>0 then launch(tgt,att,o.kb or 0,o.up or 0) end
  end
- if o.bleed and t.fighter~='Yura' then t.bleedUntil=n+o.bleed[2];t.bleedDps=o.bleed[1] end
- if s.ultUntil<=n then s.charge=math.min(100,s.charge+math.max(4,dmg*.7)) end
- t.charge=math.min(100,t.charge+dmg*.35)
+ if o.bleed and t.fighter~='Yura' then t.bleedUntil=n+o.bleed[2];t.bleedDps=o.bleed[1]*(C.DamageScale or .5);pop(tgt,'КРОВЬ',Color3.fromRGB(230,40,40)) end
+ if s.ultUntil<=n then s.charge=math.min(100,s.charge+math.max(4,raw*.7)) end
+ t.charge=math.min(100,t.charge+raw*.35)
  t.lastAttacker=att;t.lastHitAt=n
  if s.fighter=='Diesel' then s.stacks=math.min(5,s.stacks+1);s.stacksAt=n end
  if not o.silent then
-  fxd.p=dmg;fxAt(tr.Position,o.fx or 'Hit',fxd)
-  if n>=t.lockUntil and not o.down then anim(tgt,'Hit',1,.3) end
-  send(tgt,'Shake',{mag=o.shake or math.clamp(dmg/12,.25,1.4)})
-  if o.shake then send(att,'Shake',{mag=o.shake*.35}) end
+  fxd.p=raw;fxd.u=o.ult;fxAt(tr.Position,o.fx or 'Hit',fxd)
+  local big=(o.fx=='Heavy' or o.fx=='Slam' or o.fx=='Break')
+if n>=t.lockUntil and not o.down then anim(tgt,'Hit',big and 2 or 1,big and .4 or .3) end
+  send(tgt,'Shake',{mag=o.shake or math.clamp(raw/12,.25,1.4),dir=dv,kind=o.fx or 'Hit',ult=o.ult})
+  send(att,'Shake',{mag=(o.shake or math.clamp(raw/12,.25,1.4))*.45,dir=dv,kind=o.fx or 'Hit',atk=true,ult=o.ult})
  end
  update(att);update(tgt)
  return true
@@ -424,28 +469,26 @@ local function tempProp(e,build,dur)
  local c=chr(e);local arm=c and c:FindFirstChild('Right Arm');if not arm then return end
  local f=Instance.new('Folder');f.Name='TempProp';f.Parent=c;build(f,arm);Debris:AddItem(f,dur)
 end
-local function batonProp(f,arm) -- резиновая дубинка с боковой ручкой и петлёй
- rod(f,arm,'Дубинка',V(0,-1,-.3),V(0,-1.4,-3.9),.34,C3(30,30,32),Enum.Material.Fabric)
- rod(f,arm,'Дубинка рукоять',V(0,-.95,-.1),V(0,-1.05,-1.0),.4,C3(18,18,20),Enum.Material.SmoothPlastic)
- rod(f,arm,'Дубинка торец',V(0,-1.4,-3.9),V(0,-1.42,-4.0),.4,C3(44,44,48),Enum.Material.SmoothPlastic)
- rod(f,arm,'Дубинка боковая ручка',V(0,-1.05,-1.2),V(.9,-1.1,-1.2),.2,C3(24,24,26),Enum.Material.SmoothPlastic)
- mk(f,arm,'Дубинка петля',V(.08,.5,.5),C3(60,60,64),Enum.Material.Fabric,CF(.1,-.9,.3))
+local function batonProp(f,arm) -- v2.1: резиновая дубинка ПР (≈ 2.6 студ), рифлёная рукоять, кольцо, петля
+ rod(f,arm,'Дубинка рукоять',V(0,-.95,.45),V(0,-.95,-.15),.3,C3(20,20,22),MAT.SmoothPlastic)
+ for i=0,3 do rod(f,arm,'Дубинка насечка',V(0,-.95,.38-i*.14),V(0,-.95,.34-i*.14),.33,C3(42,42,46),MAT.SmoothPlastic) end
+ rod(f,arm,'Дубинка кольцо',V(0,-.95,-.15),V(0,-.95,-.24),.35,C3(70,70,76),MAT.Metal)
+ rod(f,arm,'Дубинка',V(0,-.95,-.24),V(0,-.98,-2.5),.28,C3(28,28,30),MAT.SmoothPlastic)
+ rod(f,arm,'Дубинка торец',V(0,-.98,-2.5),V(0,-.98,-2.6),.31,C3(46,46,50),MAT.SmoothPlastic)
+ mk(f,arm,'Дубинка петля',V(.06,.45,.3),C3(70,70,74),MAT.Fabric,CF(0,-.95,.66))
 end
-local function pipeProp(f,arm) -- арматура с рёбрами и ржавчиной
- rod(f,arm,'Арматура',V(0,-.9,.7),V(0,-1.0,-4.8),.36,C3(122,78,55),Enum.Material.Metal)
- for i=0,7 do
-  local z=.5-i*.72
-  rod(f,arm,'Арматура ребро',V(0,-.92-i*.012,z),V(0,-.92-i*.012,z-.14),.5,C3(104,66,46),Enum.Material.Metal)
- end
- rod(f,arm,'Арматура ржавчина',V(0,-.98,-2.6),V(0,-1.0,-3.4),.42,C3(150,84,40),Enum.Material.CorrodedMetal)
- rod(f,arm,'Арматура наконечник',V(0,-1.0,-4.8),V(0,-1.0,-5.05),.54,C3(86,56,40),Enum.Material.Metal)
+local function pipeProp(f,arm) -- v2.1: арматура (≈ 3.4 студ): ржавый пруток с рёбрами, изолента на хвате
+ rod(f,arm,'Арматура',V(0,-.95,.5),V(0,-.98,-3.2),.26,C3(112,72,52),MAT.CorrodedMetal)
+ for i=0,9 do local z=-.2-i*.3;rod(f,arm,'Арматура ребро',V(0,-.96,z),V(0,-.96,z-.06),.34,C3(96,60,42),MAT.Metal) end
+ rod(f,arm,'Арматура срез',V(0,-.98,-3.2),V(0,-.98,-3.26),.27,C3(170,160,150),MAT.Metal)
+ rod(f,arm,'Арматура изолента',V(0,-.95,.5),V(0,-.95,-.1),.31,C3(30,40,90),MAT.Fabric)
 end
-local function bagProp(f,arm) -- пакет с бутылками
- rod(f,arm,'Пакет ручка',V(0,-1,-.2),V(0,-2.2,-.9),.2,C3(60,60,64),Enum.Material.Fabric)
- mk(f,arm,'Пакет',V(2.6,3,2.6),C3(210,210,220),Enum.Material.Fabric,CF(0,-3,-1.1),Enum.PartType.Ball)
- mk(f,arm,'Пакет узел',V(.5,.5,.5),C3(190,190,200),Enum.Material.Fabric,CF(0,-2.0,-1.0),Enum.PartType.Ball)
- for i=-1,1 do mk(f,arm,'Пакет бутылка',V(1.5,.7,.7),C3(60,130,80),Enum.Material.Glass,CF(i*.6,-3.6,-1.1)*CFrame.Angles(0,0,math.rad(90+i*14)),Enum.PartType.Cylinder,.25) end
- mk(f,arm,'Пакет банки',V(1.1,1.1,1.1),C3(150,150,155),Enum.Material.Metal,CF(.5,-3.3,-1.4),Enum.PartType.Ball)
+local function bagProp(f,arm) -- v2.1: пакет-«майка» с бутылками, висит из кулака
+ rod(f,arm,'Пакет ручка',V(-.16,-.95,0),V(-.3,-1.6,-.05),.1,C3(225,225,232),MAT.Fabric)
+ rod(f,arm,'Пакет ручка',V(.16,-.95,0),V(.3,-1.6,-.05),.1,C3(225,225,232),MAT.Fabric)
+ mk(f,arm,'Пакет',V(1.45,1.45,1.45),C3(230,230,236),MAT.Fabric,CF(0,-2.3,-.05),Enum.PartType.Ball,.1)
+ mk(f,arm,'Пакет полоса',V(1.2,.16,1.2),C3(200,40,40),MAT.Fabric,CF(0,-1.85,-.05))
+ for i=-1,1 do rod(f,arm,'Пакет бутылка',V(i*.32,-1.95,-.05),V(i*.32+.05,-1.4,-.05),.16,C3(50,120,70),MAT.Glass,.2) end
 end
 -- v2.0: прячет детали предмета бойца, имя которых НАЧИНАЕТСЯ с одного из префиксов (пистолет в кобуре, бита за спиной, бутылка в руке)
 local function hideProps(p,names,dur)
@@ -464,20 +507,19 @@ local function hideProps(p,names,dur)
  end
 end
 local GUN_PARTS={'Пистолет'}
-local function gunProp(f,arm) -- пистолет в руке (рука вперёд: ствол идёт вдоль -Y, рукоять смотрит вниз = +Z)
+local function gunProp(f,arm) -- v2.1: ПМ в руке (≈ 1 студ): ствол вдоль -Y, рукоять вниз (+Z)
  local ang=CFrame.Angles;local rad=math.rad
- mk(f,arm,'Пистолет затвор',V(.3,1.55,.38),C3(58,60,68),MAT.Metal,CF(0,-1.6,-.04))
- mk(f,arm,'Пистолет затвор блик',V(.06,1.3,.1),C3(150,152,160),MAT.Metal,CF(.16,-1.6,-.08))
- mk(f,arm,'Пистолет ствол',V(.2,.5,.2),C3(30,30,34),MAT.Metal,CF(0,-2.55,-.02))
- mk(f,arm,'Пистолет дуло',V(.12,.12,.14),C3(8,8,10),MAT.SmoothPlastic,CF(0,-2.82,-.02))
- mk(f,arm,'Пистолет рамка',V(.28,1.0,.3),C3(34,34,38),MAT.SmoothPlastic,CF(0,-1.2,.3))
- mk(f,arm,'Пистолет рукоять',V(.32,.42,.84),C3(26,26,28),MAT.SmoothPlastic,CF(0,-.95,.55)*ang(rad(-12),0,0))
- mk(f,arm,'Пистолет магазин',V(.3,.12,.76),C3(60,60,66),MAT.Metal,CF(0,-.72,.62)*ang(rad(-12),0,0))
- mk(f,arm,'Пистолет скоба',V(.1,.46,.1),C3(34,34,38),MAT.SmoothPlastic,CF(0,-1.62,.52))
- mk(f,arm,'Пистолет скоба верх',V(.1,.1,.4),C3(34,34,38),MAT.SmoothPlastic,CF(0,-1.4,.34))
- mk(f,arm,'Пистолет курок',V(.1,.16,.1),C3(180,180,186),MAT.Metal,CF(0,-1.14,.02))
- mk(f,arm,'Пистолет мушка',V(.1,.12,.2),C3(220,220,224),MAT.Metal,CF(0,-2.35,-.24))
- mk(f,arm,'Пистолет целик',V(.2,.1,.2),C3(220,220,224),MAT.Metal,CF(0,-1.0,-.24))
+ shine(mk(f,arm,'Пистолет затвор',V(.24,1.0,.3),C3(48,50,56),MAT.Metal,CF(0,-1.42,-.05)),.15)
+ for i=0,3 do mk(f,arm,'Пистолет насечки',V(.26,.04,.24),C3(28,28,32),MAT.Metal,CF(0,-1.02-i*.07,-.05)) end
+ mk(f,arm,'Пистолет окно',V(.25,.22,.08),C3(20,20,22),MAT.Metal,CF(0,-1.5,-.2))
+ mk(f,arm,'Пистолет дуло',V(.12,.06,.12),C3(6,6,8),MAT.SmoothPlastic,CF(0,-1.93,-.05))
+ mk(f,arm,'Пистолет рамка',V(.22,.8,.2),C3(36,36,40),MAT.Metal,CF(0,-1.4,.2))
+ mk(f,arm,'Пистолет рукоять',V(.24,.3,.62),C3(30,30,32),MAT.SmoothPlastic,CF(0,-1.0,.45)*ang(rad(-10),0,0))
+ mk(f,arm,'Пистолет накладка',V(.26,.24,.44),C3(70,48,34),MAT.Wood,CF(0,-1.0,.48)*ang(rad(-10),0,0))
+ mk(f,arm,'Пистолет скоба',V(.08,.36,.08),C3(36,36,40),MAT.Metal,CF(0,-1.48,.42))
+ mk(f,arm,'Пистолет курок',V(.07,.1,.12),C3(170,170,176),MAT.Metal,CF(0,-1.32,.33))
+ mk(f,arm,'Пистолет мушка',V(.06,.08,.1),C3(220,220,224),MAT.Metal,CF(0,-1.86,-.24))
+ mk(f,arm,'Пистолет целик',V(.16,.08,.1),C3(220,220,224),MAT.Metal,CF(0,-.98,-.24))
 end
 local function drawGun(p,dur) -- Майор достаёт пистолет из кобуры на время стрельбы
  hideProps(p,GUN_PARTS,dur)
@@ -493,13 +535,14 @@ local function batProp(f,arm) -- бита в руке (для ульты Бит�
  rod(f,arm,'Бита торец',V(0,-1.05,-4.9),V(0,-1.07,-5.05),.58,C3(120,80,45),MAT.Wood)
  for _,z in ipairs({-3.7,-4.1,-4.5}) do mk(f,arm,'Бита гвоздь',V(.13,.13,.13),C3(200,200,206),MAT.Metal,CF(0,-1.05+.34,z),Enum.PartType.Ball) end
 end
-local function binProp(f,arm) -- мусорка в руках (для ульты Юры)
- mk(f,arm,'Мусорка',V(3.1,3.2,2.7),C3(46,98,66),MAT.Metal,CF(0,-2.8,0))
- for i=-1,1 do mk(f,arm,'Мусорка ребро',V(.14,3.2,2.74),C3(36,80,54),MAT.Metal,CF(i*.9,-2.8,0)) end
- mk(f,arm,'Мусорка полоса',V(3.14,.3,2.74),C3(120,120,110),MAT.Metal,CF(0,-2.2,0))
- mk(f,arm,'Мусорка крышка',V(3.4,.35,3),C3(34,74,50),MAT.Metal,CF(0,-4.5,0))
- mk(f,arm,'Мусорка ручка',V(1.0,.14,.14),C3(150,150,145),MAT.Metal,CF(0,-4.7,0))
- mk(f,arm,'Мусорка мусор',V(.7,.5,.5),C3(190,170,120),MAT.Fabric,CF(.6,-5.0,.2)*CFrame.Angles(.4,.3,.2))
+local function binProp(f,arm) -- v2.1: мусорный бак (ульта Юры), цилиндр с рёбрами, крышкой и вмятиной
+ local ang=CFrame.Angles;local r90=math.rad(90)
+ mk(f,arm,'Мусорка',V(2.4,2.1,2.1),C3(52,104,70),MAT.Metal,CF(0,-2.5,0)*ang(0,0,r90),Enum.PartType.Cylinder)
+ for i=0,2 do mk(f,arm,'Мусорка ребро',V(.14,2.18,2.18),C3(40,84,56),MAT.Metal,CF(0,-1.7-i*.8,0)*ang(0,0,r90),Enum.PartType.Cylinder) end
+ mk(f,arm,'Мусорка крышка',V(.22,2.3,2.3),C3(38,78,52),MAT.Metal,CF(0,-3.75,0)*ang(0,0,r90),Enum.PartType.Cylinder)
+ mk(f,arm,'Мусорка ручка',V(.9,.14,.14),C3(150,150,145),MAT.Metal,CF(0,-3.92,0))
+ mk(f,arm,'Мусорка мусор',V(.6,.4,.5),C3(190,170,120),MAT.Fabric,CF(.4,-3.98,.3)*ang(.4,.3,.2))
+ mk(f,arm,'Мусорка вмятина',V(.1,.6,.8),C3(36,74,50),MAT.Metal,CF(1.04,-2.6,.2))
 end
 local BOTTLE_PARTS={'Бутылка'}
 local function roseProp(f,arm) -- «розочка»: разбитая бутылка (для ульты Джека)
@@ -548,6 +591,12 @@ local function bottleProp(f,arm) -- Юра: бутылка перед броск
  rod(f,arm,'Бутыль пробка',V(0,-3.0,-.3),V(0,-3.12,-.3),.28,C3(200,60,50),MAT.Metal)
  rod(f,arm,'Бутыль жидкость',V(0,-1.18,-.3),V(0,-1.9,-.3),.46,C3(220,225,200),MAT.Neon,.55)
 end
+local function badgeProp(f,arm) -- v2.1: Майор, «Предъявите документы» — раскрытое красное удостоверение
+ mk(f,arm,'Удостоверение обложка',V(.9,.06,.62),C3(150,24,28),MAT.Fabric,CF(0,-1.12,-.1))
+ mk(f,arm,'Удостоверение лист',V(.84,.07,.56),C3(236,230,214),MAT.SmoothPlastic,CF(0,-1.16,-.1))
+ mk(f,arm,'Удостоверение фото',V(.24,.08,.3),C3(90,96,110),MAT.SmoothPlastic,CF(-.22,-1.18,-.1))
+ mk(f,arm,'Удостоверение герб',V(.14,.14,.14),C3(230,190,70),MAT.Metal,CF(.22,-1.18,-.18),Enum.PartType.Ball)
+end
 local function figure(parent,pos,lookAtPos,shirt,collide)
  local m=Instance.new('Model');m.Name='Фигура';m.Parent=parent
  local base=CFrame.lookAt(pos,V(lookAtPos.X,pos.Y,lookAtPos.Z))
@@ -583,7 +632,7 @@ local function m1(p,s)
  dash(p,heavy and 30 or 20,.12)
  update(p)
  after(p,s,windup,function()
-  local t=enemies(p,heavy and 7.5 or 6.5,.05)[1]
+  local t=boxHit(p,heavy and 6.8 or 6,.05)
   local ult=s.ultUntil>now()
   if s.fighter=='Jack' and ult then aoe(p,8,{d=1.5,down=.7,st=.7,fx='Slam',unavoid=true,nobur=true,shake=.6}) end
   if not t then return end
@@ -635,7 +684,7 @@ local function shift(p,s,delay,fwd,side,up,dur)
   local look,right=r.CFrame.LookVector,r.CFrame.RightVector
   local v=V(look.X*fwd+right.X*side,0,look.Z*fwd+right.Z*side);local mask=V(1e5,0,1e5)
   if up~=0 then v=v+V(0,up,0);mask=V(1e5,1e5,1e5) end
-  impulse(p,v,dur,mask)
+  selfMove(p,v,dur,mask)
  end
  if delay<=0 then go() else after(p,s,delay,go) end
 end
@@ -653,11 +702,27 @@ local MOVES={
 -- и если враг успевал шагнуть — скилл бил в пустоту. Плюс запас дальности HB_PAD и чуть шире конус HB_DOT. Одну цель бьём один раз.
 local HB_PAD=.8
 local HB_DOT=.1
+-- v2.1: хитбокс-коробка перед бойцом (как в Battlegrounds): длина = дальность, ширина зависит от «конуса» скилла,
+-- высота ±4.5 студ, чуть заходит назад (0.8) — попадает по врагу вплотную. dot=nil — круг вокруг бойца.
+local function boxHit(p,range,dot)
+ if dot==nil then return enemies(p,range,nil)[1] end
+ local r=root(p);if not r then return nil end
+ local half=(dot>=.4 and 2.6) or (dot>=.15 and 3.1) or 3.7
+ local best,bd
+ for _,e in ipairs(entities()) do
+  if e~=p and alive(e) then
+   local lp=r.CFrame:PointToObjectSpace(root(e).Position)
+   local fwd=-lp.Z
+   if fwd>=-.8 and fwd<=range and math.abs(lp.X)<=half and math.abs(lp.Y)<=4.5 and (not bd or fwd<bd) then best,bd={e=e,d=math.max(fwd,0)},fwd end
+  end
+ end
+ return best
+end
 local function seek(p,s,delay,range,dot,fn,win)
  win=win or .12;local done=false
  local function try()
   if done then return end
-  local t=enemies(p,range+HB_PAD,dot and dot-HB_DOT or nil)[1]
+  local t=boxHit(p,range+HB_PAD,dot)
   if t then done=true;fn(t) end
  end
  after(p,s,delay,try);after(p,s,delay+win/2,try);after(p,s,delay+win,try)
@@ -679,7 +744,7 @@ KIT.Siply[3]=function(p,s)
  local t=enemies(p,26,.3)[1];local r=root(p)
  if t then local d=root(t.e).Position-r.Position;local dist=math.max(V(d.X,0,d.Z).Magnitude-4,0);dash(p,math.min(dist/.22,110),.22) end
  seek(p,s,.3,7.4,0,function(l)
-  if hit(p,l.e,{d=18,br=true,st=.6,slow={.5,2},kb=6,fx='Break',shake=1}) then msg(l.e,'Испуг!') end
+  if hit(p,l.e,{d=18,br=true,st=.6,slow={.5,2},kb=6,fx='Break',shake=1}) then msg(l.e,'Испуг!');pop(l.e,'ИСПУГ!',Color3.fromRGB(255,220,90)) end
  end)
 end
 KIT.Siply[4]=function(p,s)
@@ -751,8 +816,8 @@ KIT.Bitok[4]=function(p,s)
 end
 -- Майор Сява
 KIT.Major[1]=function(p,s)
- act(p,s,'Skill',1,.6);dash(p,40,.15)
- seek(p,s,.18,7,.05,function(t) if hit(p,t.e,{d=9,st=.8,fx='Hit'}) then msg(t.e,'Документы?!') end end)
+ tempProp(p,badgeProp,.6);act(p,s,'Skill',1,.6);dash(p,40,.15)
+ seek(p,s,.18,7,.05,function(t) if hit(p,t.e,{d=9,st=.8,fx='Hit'}) then msg(t.e,'Документы?!');pop(t.e,'ДОКУМЕНТЫ?!',Color3.fromRGB(120,170,255)) end end)
 end
 KIT.Major[2]=function(p,s)
  tempProp(p,batonProp,.85);act(p,s,'Skill',2,.8)
@@ -770,8 +835,8 @@ KIT.Major[3]=function(p,s)
 end
 KIT.Major[4]=function(p,s)
  act(p,s,'Skill',4,.8);drawGun(p,1.0)
- after(p,s,.3,function() local r=root(p);fxAt(r.Position+r.CFrame.LookVector*3,'Shot') end)
- seek(p,s,.3,15,.2,function(t) if hit(p,t.e,{d=18,br=true,st=.3,slow={.45,2},fx='Break',shake=1}) then msg(t.e,'Испуг!') end end)
+ after(p,s,.3,function() local r=root(p);fxAt(r.Position+V(0,4.3,0)+r.CFrame.LookVector*.6,'Shot') end) -- v2.1: выстрел вверх (предупредительный)
+ seek(p,s,.3,15,.2,function(t) if hit(p,t.e,{d=18,br=true,st=.3,slow={.45,2},fx='Break',shake=1}) then msg(t.e,'Испуг!');pop(t.e,'ИСПУГ!',Color3.fromRGB(255,220,90)) end end)
 end
 KIT.Major.R=function(p,s)
  act(p,s,'Special',1,.3,.3);drawGun(p,.8) -- v1.7: достаёт пистолет из кобуры на время выстрела
@@ -932,7 +997,7 @@ local function Seq(p,s,e,seq,total)
   end)
  end
  function Q.hit(o) -- удар, который нельзя заблокировать или уклонить
-  o.unavoid=true;o.br=true
+  o.unavoid=true;o.br=true;o.ult=true
   local ok=hit(p,e,o)
   if ok then Q.landed=true elseif not Q.landed then Q.aborted=true;msg(p,'Цель недоступна — ульта сорвана');stop() end
   return ok
@@ -1048,7 +1113,7 @@ local function dummy(p,blocking)
  local tag=Instance.new('BillboardGui');tag.Size=UDim2.fromOffset(180,35);tag.StudsOffset=V(0,3,0);tag.AlwaysOnTop=true;tag.Parent=base
  local txt=Instance.new('TextLabel');txt.Size=UDim2.fromScale(1,1);txt.BackgroundTransparency=1;txt.TextColor3=Color3.new(1,1,1);txt.Text=blocking and 'BLOCK DUMMY' or 'DUMMY';txt.Parent=tag
  local st=newState('Siply');st.block=blocking and true or false
- profiles[model]=st;dummies[model]=true
+ profiles[model]=st;dummies[model]=true;setGroup(model)
  task.delay(180,function() profiles[model]=nil;dummies[model]=nil;if model.Parent then model:Destroy() end end)
 end
 -- ===== Сохранение =====
@@ -1071,7 +1136,7 @@ Players.PlayerAdded:Connect(function(p)
  local kv=Instance.new('IntValue');kv.Name='Kills';kv.Value=s.kills;kv.Parent=ls
  local donated=Instance.new('IntValue');donated.Name='Donated';donated.Value=0;donated.Parent=ls
  p.CharacterAdded:Connect(function(ch)
-  resetState(s)
+ resetState(s);setGroup(ch)
   local h=ch:WaitForChild('Humanoid',10);if not h then return end
   h.MaxHealth=C.Characters[s.fighter].hp;h.Health=h.MaxHealth
   h.Died:Connect(function()
@@ -1113,8 +1178,14 @@ remote.OnServerEvent:Connect(function(p,action,arg)
   if n<(s.cooldowns.Dash or 0) then return end
   if n<s.noDashUntil then msg(p,'Липко! Рывок недоступен');return end
   local cd=(s.fighter=='Siply' and s.ultUntil>n) and .8 or 3
-  s.cooldowns.Dash=n+cd;s.lockUntil=n+.22;anim(p,'Dash',1,.28)
-  dash(p,90,.2)
+  local r=root(p) -- v2.1: рывок туда, куда жмёшь (вперёд/назад/вбок), своя анимация на каждую сторону
+local dir=(typeof(arg)=='Vector3' and arg.Magnitude>.3 and arg.Magnitude<2) and V(arg.X,0,arg.Z) or nil
+if not dir or dir.Magnitude<.1 then dir=r and r.CFrame.LookVector or V(0,0,-1) end
+dir=V(dir.X,0,dir.Z).Unit
+local idx=1
+if r then local rel=r.CFrame:VectorToObjectSpace(dir);if rel.Z>.5 then idx=2 elseif rel.X<-.5 then idx=3 elseif rel.X>.5 then idx=4 end end
+s.cooldowns.Dash=n+cd;s.lockUntil=n+.24;anim(p,'Dash',idx,.3)
+dash(p,idx==1 and 88 or 74,.2,dir)
   send(p,'Cooldown',{key='Q',duration=cd});update(p);return
  end
  if action=='Punch' then m1(p,s);return end
@@ -1137,7 +1208,7 @@ task.spawn(function()
       local er=root(e);local off=er.Position-z.pos
       if V(off.X,0,off.Z).Magnitude<=z.radius and math.abs(off.Y)<6 then
        local t=profiles[e]
-       if z.kind=='slip' and not z.seen[e] then z.seen[e]=true;knockdown(e,t,.9);msg(e,'Поскользнулся!');update(e)
+       if z.kind=='slip' and not z.seen[e] then z.seen[e]=true;knockdown(e,t,.9);msg(e,'Поскользнулся!');pop(e,'ПОСКОЛЬЗНУЛСЯ',Color3.fromRGB(150,220,90));update(e)
        elseif z.kind=='shards' then t.slowUntil=math.max(t.slowUntil,n+.5);t.slowMul=.6;update(e) end
       end
      end
@@ -1150,7 +1221,7 @@ task.spawn(function()
    for e,s in pairs(profiles) do
     if isPlayer(e) then s.seconds+=.25 end
     if s.fighter=='Diesel' and n-s.stacksAt>3 and s.ultUntil<=n then s.stacks=0 end
-    if s.bleedUntil>n and alive(e) then hum(e):TakeDamage(s.bleedDps*.25) end
+    if s.bleedUntil>n and alive(e) then hum(e):TakeDamage(s.bleedDps*.25);local br=root(e);if br and math.random()<.5 then fxAt(br.Position,'Bleed') end end
     if dummies[e] and alive(e) and hum(e).Health<100 then hum(e).Health=hum(e).MaxHealth end
     update(e)
    end
