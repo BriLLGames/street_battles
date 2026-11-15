@@ -1,4 +1,4 @@
--- SfxClient v1.3: слушает события от сервера и включает звуки (сами звуки и их настройка — ReplicatedStorage/Sfx)
+-- SfxClient v2.1: слушает события от сервера и включает звуки (сами звуки — ReplicatedStorage/Sfx)
 local Players=game:GetService('Players')
 local RS=game:GetService('ReplicatedStorage')
 local Sfx=require(RS:WaitForChild('Sfx'))
@@ -7,8 +7,11 @@ local player=Players.LocalPlayer
 
 remote.OnClientEvent:Connect(function(kind,data)
  if kind=='FX' then
-  if type(data)=='table' and typeof(data.position)=='Vector3' then Sfx.fx(data.kind,data.position) end
+  if type(data)=='table' and typeof(data.position)=='Vector3' then Sfx.fx(data.kind,data.position,data.f,data.u) end
  elseif kind=='SFX' then Sfx.event(data)
+ elseif kind=='Dash' and type(data)=='table' then -- v2.1: звук рывка у того, кто рванул
+  local p=Players:GetPlayerByUserId(data.userId or 0);local r=p and p.Character and p.Character:FindFirstChild('HumanoidRootPart')
+  if r then Sfx.play('dash',r.Position) end
  elseif kind=='Blind' then Sfx.blind(type(data)=='table' and data.kind or nil)
  elseif kind=='Selected' then Sfx.ui('select')
  elseif kind=='Kill' then Sfx.ui('kill')
