@@ -1,4 +1,5 @@
--- StreetUI v2.1: выбор бойца (список + карточка), панель скиллов.
+-- StreetUI v2.2: выбор бойца (список + карточка), панель скиллов.
+-- v2.2: медленная ходьба — держать Left Ctrl (ПК) или кнопка «ШАГ» (телефон, переключатель).
 -- v2.1: окно выбора с градиентом в цвет бойца, анимация открытия, роль/урон/контроль/сложность, анимированные полоски;
 --       кнопки скиллов «пружинят» при нажатии и вспыхивают, когда перезарядка закончилась; рывок в сторону движения.
 -- ПК: колонка справа с рядами «клавиша · название · перезарядка». Телефон: круглые кнопки дугой вокруг большой кнопки УДАР (зона большого пальца).
@@ -267,6 +268,14 @@ if mobile then
  circle('B',66,UDim2.fromOffset(112,184));circle('Q',50,UDim2.fromOffset(124,112));circle('F',54,UDim2.fromOffset(48,184));circle('R',50,UDim2.fromOffset(50,112))
  local punch=new('TextButton',{Name='Punch',AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(CX,CY),Size=UDim2.fromOffset(92,92),Text='УДАР',TextSize=18,Font=FONTB,TextColor3=light,BackgroundColor3=C3(150,58,48),AutoButtonColor=false,ZIndex=2},root);round(punch);stroke(punch,C3(255,170,150),3,.1)
  punch.Activated:Connect(function() if not overlay.Visible then remote:FireServer('Punch') end end)
+-- v2.2: переключатель медленной ходьбы на телефоне
+local walkOn=false
+local walkBtn=new('TextButton',{Name='SlowWalk',AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromOffset(124,44),Size=UDim2.fromOffset(46,46),Text='ШАГ',TextSize=12,Font=FONTB,TextColor3=light,BackgroundColor3=dark,BackgroundTransparency=.08,AutoButtonColor=false,ZIndex=2},root);round(walkBtn)
+local walkStroke=stroke(walkBtn,C3(150,156,166),2,.2)
+walkBtn.Activated:Connect(function()
+ walkOn=not walkOn;remote:FireServer('Walk',walkOn);Sfx.ui('click')
+ walkBtn.BackgroundColor3=walkOn and C3(60,90,70) or dark;walkStroke.Color=walkOn and C3(120,220,140) or C3(150,156,166)
+end)
  punch.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.Touch then TweenService:Create(punch,TweenInfo.new(.06),{BackgroundColor3=C3(200,86,70)}):Play() end end)
  punch.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.Touch then TweenService:Create(punch,TweenInfo.new(.12),{BackgroundColor3=C3(150,58,48)}):Play() end end)
 else
@@ -307,13 +316,18 @@ remote.OnClientEvent:Connect(function(kind,data)
 end)
 UIS.InputBegan:Connect(function(input,processed)
  if input.KeyCode==Enum.KeyCode.M and not UIS:GetFocusedTextBox() then openSelector();return end
+if input.KeyCode==Enum.KeyCode.LeftControl and not UIS:GetFocusedTextBox() then remote:FireServer('Walk',true);return end
  if input.KeyCode==Enum.KeyCode.Escape and overlay.Visible then openSelector(false);return end
  if processed or overlay.Visible or UIS:GetFocusedTextBox() then return end
  if input.UserInputType==Enum.UserInputType.MouseButton1 then remote:FireServer('Punch');return end
  local key=input.KeyCode.Name
  if buttons[key] then action(key,true) end
 end)
-UIS.InputEnded:Connect(function(input) if input.KeyCode==Enum.KeyCode.F then action('F',false) end end)
+UIS.InputEnded:Connect(function(input)
+ if input.KeyCode==Enum.KeyCode.F then action('F',false) end
+ if input.KeyCode==Enum.KeyCode.LeftControl then remote:FireServer('Walk',false) end
+end)
+UIS.WindowFocusReleased:Connect(function() remote:FireServer('Walk',false) end)
 local elapsed=0;local pulse=0
 RunService.RenderStepped:Connect(function(dt)
  pulse+=dt;elapsed+=dt;if elapsed<.05 then return end;elapsed=0
