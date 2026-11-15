@@ -1,4 +1,7 @@
--- VfxClient v1.5: визуальные эффекты боя (LocalScript в StarterPlayerScripts).
+-- VfxClient v2.1: визуальные эффекты боя (LocalScript в StarterPlayerScripts).
+-- v2.1: камера при ударах (толчок от направления удара, импульс у атакующего, «стоп-кадр» на сильных ударах),
+--       кинематографичные полосы и импакт-кадры в ультах, всплывающие статусы над бойцами, кровь, детали скиллов
+--       (выстрел вверх, свечение телефона, перегар, пивная пена, удары лбом), красная кайма при низком здоровье.
 -- Всё рисуется только на клиенте: сервер шлёт короткие события (FX / Skill / Dash / UltStart / Finisher / Shake),
 -- здесь они превращаются в вспышки, искры-«штрихи», ударные кольца, дым, осколки, шлейфы-дуги ударов, afterimage при рывках,
 -- ауру ульта, тряску камеры, FOV-удар, вспышки экрана и скоростные линии.
@@ -42,6 +45,7 @@ local THEME={
 local function theme(f) return THEME[f] or THEME.Siply end
 
 local fold=Instance.new('Folder');fold.Name='StreetVFX';fold.Parent=workspace
+local letterbox,impactFrame -- v2.1: объявлены заранее, определены ниже (рядом с камерой ударов)
 
 -- ===== Базовые кирпичики =====
 local function mkPart(shape,size,color,transp,cf,mat,life)
@@ -123,6 +127,8 @@ end
 
 local trauma,fovKick,applied,baseFov=0,0,0,70
 local function addTrauma(m) trauma=math.min(1,trauma+m) end
+local punch=Vector3.zero -- v2.1: угловой «толчок» камеры (pitch,yaw,roll в радианах), быстро затухает
+local function camPunch(v) punch=punch+v;if punch.Magnitude>.12 then punch=punch.Unit*.12 end end
 local function kick(f) if math.abs(f)>math.abs(fovKick) then fovKick=f end end
 RunService:BindToRenderStep('StreetVFXCam',Enum.RenderPriority.Camera.Value+1,function(dt)
  local c=workspace.CurrentCamera;if not c then return end
@@ -133,7 +139,9 @@ RunService:BindToRenderStep('StreetVFXCam',Enum.RenderPriority.Camera.Value+1,fu
   local s=trauma*trauma;local t=os.clock()
   c.CFrame=c.CFrame*CF(math.noise(t*38,1)*s*.9,math.noise(t*38,2)*s*.9,0)*CFrame.Angles(math.noise(t*30,3)*s*.05,math.noise(t*30,4)*s*.05,math.noise(t*26,5)*s*.07)
  end
- if fovKick~=0 or applied~=0 then c.FieldOfView=baseFov+fovKick;applied=fovKick else baseFov=c.FieldOfView end
+ punch=punch:Lerp(Vector3.zero,math.min(1,dt*12))
+if punch.Magnitude>.0005 then c.CFrame=c.CFrame*CFrame.Angles(punch.X,punch.Y,punch.Z) end
+if fovKick~=0 or applied~=0 then c.FieldOfView=baseFov+fovKick;applied=fovKick else baseFov=c.FieldOfView end
 end)
 
 -- ===== Эффекты-примитивы =====
@@ -436,6 +444,9 @@ end
 IMP.Down=function(p,dir,th,pw,gp)
  dustRing(gp,1.4,6);debris(gp,GRAY,3,12);ring(CF(gp+V3(0,.15,0)),GRAY,.8,5,.35,.3,14)
 end
+IMP.Bleed=function(p) -- v2.1: капли крови у того, кто кровоточит
+droplets(p+V3(R(-.4,.4),R(-.2,.6),R(-.4,.4)),V3(0,-.3,0),C3(150,12,16),3,7,.2,Enum.Material.SmoothPlastic)
+end
 IMP.Spark=function(p,dir,th)
  flash(p,C3(255,225,150),2,.1,false);sparks(p,nil,C3(255,210,120),7,36,1,.3,1)
  puff(p,{color=GRAY,n=3,s0=.8,s1=2.4,life=.5,v0=2,v1=5,a0=.55,a1=.8})
@@ -489,6 +500,7 @@ end
 -- ===== Шаги эффектов скиллов =====
 local STEP={}
 local function frontPos(r,f,h) return (r.CFrame*CF(0,h or 0,-(f or 0))).Position end
+local function headPos(c) local h=c.char:FindFirstChild('Head');return h and h.Position or c.root.Position+V3(0,1.5,0) end
 local function groundPos(r,f) local p=frontPos(r,f,0);return V3(p.X,groundAt(p)+.1,p.Z) end
 STEP.charge=function(c,a) -- сбор энергии: частицы стягиваются к руке/груди, шар растёт
  local at=a.at or 'R';local limb=c.char:FindFirstChild(at=='R' and 'Right Arm' or at=='L' and 'Left Arm' or 'Torso')
@@ -601,13 +613,48 @@ STEP.pulse=function(c,a) -- контр-стойка: кольца и призр�
  afterimage(c.char,c.th,.6);STEP.aura(c,{t=.6})
 end
 
+-- v2.1: мелкие детали скиллов
+STEP.fear=function(c,a) -- предупредительный выстрел: ударная волна страха, сине-красные вспышки (мигалка)
+local pos=c.root.Position;local gp=V3(pos.X,groundAt(pos)+.1,pos.Z)
+ring(CF(gp),C3(255,70,70),1,a.r or 14,.5,.4,24);ring(CF(gp+V3(0,.1,0)),C3(80,140,255),1,(a.r or 14)*.75,.45,.3,20)
+for i=0,3 do task.delay(i*.09,function() if c.root.Parent then flash(c.root.Position+V3(0,4.5,0),i%2==0 and C3(255,60,60) or C3(70,130,255),3,.08,true) end end) end
+if nearMe(pos,20) then addTrauma(.25);kick(4) end
+end
+STEP.handglow=function(c,a) -- свечение предмета в руке (экран телефона, кастет)
+local arm=c.char:FindFirstChild('Right Arm');if not arm then return end
+local col=a.col or C3(120,200,255);local t=a.t or .5;local el,nxt=0,0
+addSim(function(dt)
+if not arm.Parent then return true end
+el+=dt;nxt-=dt
+if nxt<=0 then nxt=.12;local p=(arm.CFrame*CF(0,-1.3,-.3)).Position;glow(p,col,2.4,.18);if el<.2 then ring(facing(p,arm.CFrame.LookVector),col,.2,1.6,.2,.08,10) end end
+return el>=t
+end)
+end
+STEP.breath=function(c,a) -- перегар/отрыжка: зелёное облако изо рта
+local hp=headPos(c);local look=c.root.CFrame.LookVector
+local s=a.big and 1.8 or 1
+puff(hp+look*.8,{color=C3(130,170,60),c1=C3(170,190,90),dir=look,n=a.big and 14 or 7,s0=1*s,s1=4.5*s,life=1.2,v0=4,v1=11*s,spread=a.big and 60 or 25,drag=2.4,glow=.3,lit=0,a0=.35,a1=.7,acc=V3(0,1.5,0)})
+if a.big then ring(facing(hp+look,look),C3(150,200,70),.5,6,.35,.3,16) end
+end
+STEP.foam=function(c,a) -- пивная пена: белые хлопья и капли
+local pos=frontPos(c.root,a.f or 4,.9);local look=c.root.CFrame.LookVector
+puff(pos,{color=C3(250,246,232),dir=look,n=8,s0=.6,s1=2.2,life=.7,v0=6,v1=16,spread=30,drag=3,a0=.15,a1=.6,acc=V3(0,-6,0)})
+droplets(pos,look,C3(255,250,235),6,22,.25,Enum.Material.SmoothPlastic)
+end
+STEP.headbutt=function(c,a) -- удар лбом: вспышка на уровне головы и «звёздочки»
+local pos=frontPos(c.root,a.f or 2.6,1.5)
+flash(pos,c.th.core,2.6,.12,false);star(pos,C3(255,240,140),3.5,.2,5)
+for i=1,3 do local ang=R(0,2*pi);sparks(pos+V3(cos(ang)*.6,.6,sin(ang)*.6),V3(0,1,0),C3(255,235,120),1,10,.6,.5,.5) end
+if c.me then addTrauma(.18) end
+end
+
 -- Эффекты каждого скилла: {через сколько сек, шаг, параметры}. Времена совпадают с ударами на сервере.
 -- Шаги: charge (сбор энергии), slash (дуга), burst (вспышка), ground (удар в землю), dustcloud (облако), muzzle (выстрел), throw, pulse, aura.
 local CAST={
  Siply={
   Z={{0,'charge',{at='R',t=.4,n=10}},{0,'slide',{t=.22}},{.4,'slide',{t=.15,spark=true}},{.4,'slash',{r=6.5,a0=70,a1=-45,tilt=18,h=.4,t=.15,w=2.4}},{.4,'wind',{f=2,n=4}},{.46,'ground',{f=4.5,r=7}}},
   X={{0,'wind',{f=1.5,n=3}},{.1,'slash',{r=5,a0=-25,a1=25,tilt=-12,h=.3,t=.07,w=1.2,col='core'}},{.14,'burst',{f=4.5,s=2}},{.2,'slide',{t=.14}}},
-  C={{0,'slide',{t=.22,spark=true}},{0,'wind',{f=2,n=5}},{.22,'burst',{f=3.5,s=3.5}},{.55,'slide',{t=.2}}},
+  C={{0,'handglow',{col=C3(120,200,255),t=.55}},{0,'slide',{t=.22,spark=true}},{0,'wind',{f=2,n=5}},{.22,'burst',{f=3.5,s=3.5}},{.55,'slide',{t=.2}}},
   V={{0,'charge',{at='R',t=.24,n=6}},{.24,'slash',{r=6,a0=-70,a1=75,tilt=90,h=.2,t=.12,w=2.4}},{.26,'slide',{t=.14}},{.3,'burst',{f=3.5,h=2,s=3}}},
  },
  Diesel={
@@ -626,20 +673,20 @@ local CAST={
   Z={{0,'wind',{f=1.5,n=3}},{.15,'burst',{f=3,s=2.5}},{.15,'arcs',{f=3,n=3,r=4}},{.2,'slide',{t=.15}}},
   X={{.28,'slide',{t=.12,spark=true}},{.3,'slash',{r=6,a0=60,a1=-40,tilt=35,h=.6,t=.1,w=2.4}},{.38,'arcs',{f=5,n=4,r=5}}},
   C={{0,'slide',{t=.2}},{.25,'burst',{f=3.5,s=3}},{.65,'ground',{f=5,r=7}},{.65,'arcs',{f=5,n=5,r=5,col='alt'}}},
-  V={{.3,'muzzle',{f=3,h=.4}},{.3,'slide',{t=.12}}},
+  V={{.3,'muzzle',{f=.6,h=4.3}},{.3,'slide',{t=.12}},{.32,'fear',{r=14}}},
   R={{.1,'muzzle',{f=3,h=.4}}},
  },
  Yura={
   Z={{0,'slide',{t=.2}},{.25,'throw',{}},{.25,'splash',{f=3,n=6}},{.22,'slide',{t=.12}}},
-  X={{0,'slide',{t=.2}},{.25,'dustcloud',{f=6,s=1.4,col='main'}},{.25,'splash',{f=6,n=10}}},
-  C={{0,'slide',{t=.2,spark=true}},{.25,'burst',{f=3.5,s=3}}},
+  X={{0,'slide',{t=.2}},{.18,'breath',{}},{.25,'dustcloud',{f=6,s=1.4,col='main'}},{.25,'splash',{f=6,n=10}}},
+  C={{0,'slide',{t=.2,spark=true}},{.25,'burst',{f=3.5,s=3}},{.3,'breath',{}},{.7,'breath',{}}},
   V={{0,'charge',{at='R',t=.5,n=10}},{.2,'slide',{t=.2}},{.55,'slash',{r=7.2,a0=80,a1=-60,tilt=-20,h=.5,t=.13,w=3.6}},{.5,'slide',{t=.12}},{.62,'ground',{f=6,r=8}},{.62,'splash',{f=6,n=12}}},
-  R={{.2,'pulse',{r=9,col='main'}},{.2,'splash',{f=0,n=12}}},
+  R={{.2,'pulse',{r=9,col='main'}},{.2,'breath',{big=true}},{.2,'splash',{f=0,n=12}}},
  },
  Jack={
-  Z={{0,'slide',{t=.22}},{.25,'dustcloud',{f=5,s=1,col='main'}},{.25,'splash',{f=4.5,n=16,amber=true}}},
+  Z={{0,'slide',{t=.22}},{.25,'dustcloud',{f=5,s=1,col='main'}},{.25,'splash',{f=4.5,n=16,amber=true}},{.27,'foam',{f=4}}},
   X={{0,'pulse',{}},{0,'slide',{t=.25}}},
-  C={{.3,'burst',{f=3.5,s=3}},{.4,'slide',{t=.15}},{.6,'burst',{f=3,s=2.5}},{.7,'slide',{t=.15}},{.9,'burst',{f=3,s=2.5}}},
+  C={{.3,'burst',{f=3.5,s=3}},{.4,'slide',{t=.15}},{.6,'headbutt',{}},{.7,'slide',{t=.15}},{.9,'headbutt',{}},{1.2,'headbutt',{}}},
   V={{0,'slide',{t=.18}},{.3,'throw',{}},{.3,'slide',{t=.12}},{.3,'splash',{f=3,n=8,amber=true}}},
  },
 }
@@ -699,7 +746,8 @@ local function ultStart(d)
  local c=ctxOf(d.userId,d.fighter,true);if not c then return end
  local th=c.th
  STEP.charge(c,{at='T',t=.3,n=22})
- if c.me then kick(-6);speedlines(.5,.5,th.core) end
+ if c.me then kick(-10);speedlines(.5,.5,th.core) end
+if c.me or nearMe(c.root.Position,16) then letterbox(math.min(d.dur or 4,6)) end
  task.delay(.3,function()
   if not c.root.Parent then return end
   local pos=c.root.Position;local gp=V3(pos.X,groundAt(pos)+.15,pos.Z)
@@ -707,7 +755,7 @@ local function ultStart(d)
   for i=1,3 do task.delay((i-1)*.1,function() ring(CF(gp),i==2 and th.core or th.main,2,18+i*7,.55+i*.05,1.1,28) end) end
   pillar(gp,th,.8);dustRing(gp,5,10);debris(gp,GRAY,14,34);cracks(gp,th.main,12,14,.9);scorch(gp,th.main,12,3)
   sparks(pos,nil,th.main,30,70,1,.7,2.2);sparks(pos,nil,th.core,12,95,1,.5,2.8)
-  if nearMe(pos,40) then ccPulse(.18,.3,-.35,th.core,.55);blurPulse(12,.4);kick(14);addTrauma(.55);vignette(th.main,.55,.6);speedlines(.8,.45,th.core);bloomPulse(1.4,.9) end
+  if nearMe(pos,40) then impactFrame(th.core);blurPulse(12,.4);kick(14);addTrauma(.55);vignette(th.main,.55,.6);speedlines(.8,.45,th.core);bloomPulse(1.4,.9) end
  end)
 end
 -- Финальный удар ульта: драматичный «стоп-кадр»
@@ -716,7 +764,7 @@ local function finisher(d)
  STEP.charge(c,{at='T',t=.4,n=16})
  if nearMe(c.root.Position,60) then
   ccPulse(-.05,.4,-.9,WHITE,.6);kick(-9);vignette(C3(0,0,0),.65,.6);speedlines(.7,.4,WHITE)
-  task.delay(.42,function() kick(15);addTrauma(.45);bloomPulse(1.2,.6) end)
+  task.delay(.42,function() impactFrame(WHITE);kick(15);addTrauma(.45);bloomPulse(1.2,.6);camPunch(V3(rad(5),0,rad(R(-4,4)))) end)
  end
 end
 local function whiff() -- контратака не сработала: короткий КД
@@ -766,6 +814,58 @@ end
 for _,p in ipairs(Players:GetPlayers()) do watch(p) end
 Players.PlayerAdded:Connect(watch)
 
+-- ===== v2.1: камера при ударах, кино-полосы, импакт-кадры, статусы =====
+local bars={}
+for i=1,2 do
+local f=Instance.new('Frame');f.BorderSizePixel=0;f.BackgroundColor3=C3(0,0,0);f.Size=UDim2.new(1,0,0,0);f.Active=false;f.ZIndex=10
+f.AnchorPoint=Vector2.new(0,i==1 and 0 or 1);f.Position=UDim2.fromScale(0,i==1 and 0 or 1);f.Parent=gui;bars[i]=f
+end
+local barTok=0
+letterbox=function(t) -- чёрные полосы сверху и снизу на время ульты
+barTok+=1;local k=barTok
+for _,f in ipairs(bars) do tw(f,.25,{Size=UDim2.new(1,0,.085,0)},QD,OUT) end
+task.delay(t,function() if barTok==k then for _,f in ipairs(bars) do tw(f,.35,{Size=UDim2.new(1,0,0,0)},QD,OUT) end end end)
+end
+impactFrame=function(col) -- аниме-импакт: 2 кадра негатива, затем вспышка
+cc.Saturation=-1;cc.Contrast=1.4;cc.Brightness=-.15;cc.TintColor=col or WHITE
+task.delay(.05,function() cc.Saturation=-.4;cc.Contrast=-.3;cc.Brightness=.35;cc.TintColor=WHITE;tw(cc,.35,{Brightness=0,Contrast=0,Saturation=0},QD,OUT) end)
+end
+local function camHit(d)
+local mag=clamp(d.mag or .5,.1,2.5);local k=d.kind or 'Hit'
+local big=(k=='Heavy' or k=='Slam' or k=='Break')
+local c=workspace.CurrentCamera
+local dir=typeof(d.dir)=='Vector3' and d.dir or nil
+local side=(dir and c) and c.CFrame.RightVector:Dot(dir) or R(-1,1)
+if d.atk then -- атакующий: короткий импульс «вперёд», лёгкая тряска
+addTrauma(clamp(mag*.14,.04,.3));kick(big and -3 or -1.2)
+camPunch(V3(rad(big and -1.4 or -.5),0,rad(R(-1,1)*(big and 1.2 or .4))))
+if big then ccPulse(.03,.18,-.1,WHITE,.12) end
+else -- по тебе попали: камеру дёргает от направления удара
+addTrauma(clamp(mag*.34,.12,.9));kick(big and 6 or 2.5)
+camPunch(V3(rad(big and 3.5 or 1.5),rad(side*(big and 2.5 or 1)),rad(-side*(big and 4.5 or 1.8))))
+vignette(C3(190,25,25),big and .35 or .14,.35)
+if big then ccPulse(.05,.3,-.35,C3(255,220,220),.2);blurPulse(5,.18) end
+end
+if d.ult then addTrauma(.12);bloomPulse(.4,.2) end
+end
+local function popText(d)
+if typeof(d.position)~='Vector3' or camDist(d.position)>90 then return end
+local a=mkPart(nil,V3(.1,.1,.1),WHITE,1,CF(d.position+V3(R(-.8,.8),2.8,R(-.8,.8))),nil,1.8)
+local bb=Instance.new('BillboardGui');bb.Size=UDim2.fromOffset(230,46);bb.AlwaysOnTop=true;bb.LightInfluence=0;bb.MaxDistance=90;bb.Parent=a
+local t=Instance.new('TextLabel');t.BackgroundTransparency=1;t.Size=UDim2.fromScale(1,1);t.Text=tostring(d.text or '');t.Font=Enum.Font.GothamBlack;t.TextScaled=true
+t.TextColor3=typeof(d.color)=='Color3' and d.color or WHITE;t.TextStrokeTransparency=0;t.TextStrokeColor3=C3(0,0,0);t.Rotation=R(-6,6);t.Parent=bb
+local sc=Instance.new('UIScale');sc.Scale=1.7;sc.Parent=t
+tw(sc,.2,{Scale=1},Enum.EasingStyle.Back,OUT)
+tw(a,1.2,{CFrame=a.CFrame+V3(0,2.4,0)},QD,OUT)
+task.delay(.7,function() tw(t,.45,{TextTransparency=1,TextStrokeTransparency=1},QD,OUT) end)
+end
+task.spawn(function() -- красная пульсирующая кайма, когда здоровья меньше 30%
+while task.wait(.6) do
+local ch=lp.Character;local h=ch and ch:FindFirstChildOfClass('Humanoid')
+if h and h.Health>0 and h.Health/h.MaxHealth<.3 then vignette(C3(150,0,0),.22+.1*math.sin(os.clock()*5),.55) end
+end
+end)
+
 -- ===== События от сервера =====
 remote.OnClientEvent:Connect(function(kind,d)
  local ok,err=pcall(function()
@@ -775,7 +875,8 @@ remote.OnClientEvent:Connect(function(kind,d)
   elseif kind=='Dash' and type(d)=='table' then dashFx(d)
   elseif kind=='UltStart' and type(d)=='table' then ultStart(d)
   elseif kind=='Finisher' and type(d)=='table' then finisher(d)
-  elseif kind=='Shake' and type(d)=='table' then addTrauma(clamp((d.mag or .5)*.32,.1,.85))
+  elseif kind=='Shake' and type(d)=='table' then camHit(d)
+elseif kind=='Pop' and type(d)=='table' then popText(d)
   elseif kind=='Whiff' then whiff()
   end
  end)
