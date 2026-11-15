@@ -1,4 +1,5 @@
 -- Street Battles v1.5: боёвка в стиле The Strongest Battlegrounds. Сервер решает всё (урон, стан, КД, ульты).
+-- v2.2: новая шапка Дяди Юры, медленная ходьба (Left Ctrl -> действие Walk), атрибуты Stunned/SlowWalk для анимаций.
 -- v2.1: урон сильно снижен (GameConfig.DamageScale/UltDamageScale), хитбоксы-коробки, рывки и шаги останавливаются перед врагом,
 --       бойцы не сталкиваются друг с другом (не залезаешь на голову), рывок в 4 стороны, всплывающие статусы, новые модели предметов.
 -- v2.0: новые модели оружия, предметы в скиллах (нож, телефон, наручники, бутылка Юры).
@@ -156,21 +157,28 @@ local function buildBottleHeld(f,right) -- БУТЫЛКА (v2.1): Джек де�
  rod(f,right,'Бутылка этикетка рисунок',at(1.22),at(1.33),.545,C3(190,50,42),MAT.SmoothPlastic)
  trail(body,V(-.4,0,0),V(.4,0,0),C3(170,240,190))
 end
-local function buildUshanka(f,head)
+local function buildUshanka(f,head) -- ШАПКА БОМЖА (v2.2): потёртая ушанка точно по голове, одно ухо торчит, заплатки, дырка
  local V,CF,ang,rad,C3=Vector3.new,CFrame.new,CFrame.Angles,math.rad,Color3.fromRGB
- local fur=C3(158,146,128);local cloth=C3(78,66,52)
- mk(f,head,'Шапка верх',V(2.2,.55,1.3),cloth,MAT.Fabric,CF(0,.66,0))
- mk(f,head,'Шапка макушка',V(1.7,.25,1.0),C3(90,77,60),MAT.Fabric,CF(0,.98,0))
- mk(f,head,'Шапка мех',V(2.34,.32,1.44),fur,MAT.Fabric,CF(0,.4,0))
- mk(f,head,'Шапка шов',V(1.2,.06,.06),C3(50,42,32),MAT.Fabric,CF(0,1.12,0))
- for _,sx in ipairs({-1,1}) do
-  mk(f,head,'Ушанка',V(.3,.95,1.0),cloth,MAT.Fabric,CF(sx*1.14,-.05,0)*ang(0,0,rad(sx*-6)))
-  mk(f,head,'Ушанка мех',V(.38,.22,1.08),fur,MAT.Fabric,CF(sx*1.16,-.58,0))
-  mk(f,head,'Ушанка завязка',V(.06,.4,.06),C3(40,34,28),MAT.Fabric,CF(sx*1.3,-.2,-.3))
- end
- mk(f,head,'Шапка затылок',V(2.1,.6,.2),cloth,MAT.Fabric,CF(0,.3,.68))
- mk(f,head,'Кокарда',V(.38,.38,.08),C3(215,55,45),MAT.SmoothPlastic,CF(0,.62,-.7)*ang(0,0,rad(45)))
- mk(f,head,'Кокарда центр',V(.16,.16,.1),C3(240,205,80),MAT.Metal,CF(0,.62,-.72)*ang(0,0,rad(45)))
+ local fur=C3(132,120,102);local fur2=C3(108,98,84);local cloth=C3(70,60,48);local tie=C3(40,34,28);local r90=rad(90)
+ mk(f,head,'Шапка верх',V(.48,1.42,1.42),cloth,MAT.Fabric,CF(0,.8,0)*ang(0,0,r90),Enum.PartType.Cylinder)
+ mk(f,head,'Шапка макушка',V(.1,1.2,1.2),C3(80,68,54),MAT.Fabric,CF(0,1.05,0)*ang(0,0,r90),Enum.PartType.Cylinder)
+ mk(f,head,'Шапка мех',V(.3,1.56,1.56),fur,MAT.Fabric,CF(0,.56,0)*ang(0,0,r90),Enum.PartType.Cylinder)
+ mk(f,head,'Шапка отворот',V(1.2,.36,.16),fur,MAT.Fabric,CF(0,.74,-.72)*ang(rad(-12),0,0))
+ mk(f,head,'Кокарда',V(.2,.2,.06),C3(150,60,48),MAT.SmoothPlastic,CF(0,.76,-.82)*ang(rad(-12),0,rad(45)))
+ mk(f,head,'Кокарда центр',V(.08,.08,.07),C3(170,145,80),MAT.Metal,CF(0,.76,-.84)*ang(rad(-12),0,rad(45)))
+ -- левое ухо опущено и болтается завязка, правое торчит в сторону
+ mk(f,head,'Ушанка',V(.16,.78,.82),cloth,MAT.Fabric,CF(-.74,.12,.02)*ang(0,0,rad(4)))
+ mk(f,head,'Ушанка мех',V(.2,.18,.84),fur2,MAT.Fabric,CF(-.75,-.28,.02))
+ mk(f,head,'Ушанка завязка',V(.05,.5,.05),tie,MAT.Fabric,CF(-.78,-.55,-.2)*ang(rad(10),0,rad(8)))
+ mk(f,head,'Ушанка',V(.16,.78,.82),cloth,MAT.Fabric,CF(.86,.5,.02)*ang(0,0,rad(-58)))
+ mk(f,head,'Ушанка мех',V(.2,.18,.84),fur2,MAT.Fabric,CF(1.12,.3,.02)*ang(0,0,rad(-58)))
+ mk(f,head,'Ушанка завязка',V(.05,.45,.05),tie,MAT.Fabric,CF(1.2,0,-.2)*ang(0,0,rad(-20)))
+ mk(f,head,'Шапка затылок',V(1.3,.5,.16),cloth,MAT.Fabric,CF(0,.3,.68))
+ -- бомжатские детали: заплатки разного цвета, прожжённая дырка, торчащая нитка
+ mk(f,head,'Шапка заплатка',V(.36,.3,.05),C3(96,110,70),MAT.Fabric,CF(.43,.86,-.6)*ang(rad(-20),rad(-35),rad(8)))
+ mk(f,head,'Шапка заплатка',V(.3,.26,.05),C3(120,70,60),MAT.Fabric,CF(-.52,.88,.52)*ang(rad(20),rad(-135),rad(-6)))
+ mk(f,head,'Шапка дырка',V(.14,.05,.12),C3(25,22,20),MAT.SmoothPlastic,CF(-.25,1.1,.15))
+ mk(f,head,'Шапка нитка',V(.03,.32,.03),C3(200,190,170),MAT.Fabric,CF(.3,1.18,.2)*ang(rad(30),0,rad(20)))
 end
 local function equip(p)
  local ch=p.Character;local s=get(p);if not ch or not s then return end
@@ -274,6 +282,7 @@ function update(e)
  if n<s.slowUntil then speed=speed*s.slowMul end
  if n<s.selfSlowUntil then speed=speed*s.selfSlowMul end
  if s.block then speed=speed*.55 end
+if s.walkSlow then speed=speed*.42 end -- v2.2: медленная ходьба (Left Ctrl)
  if s.ultUntil>n then if s.fighter=='Yura' then speed=speed*2 elseif s.fighter=='Bitok' then speed=speed*1.35 end end
  if n<s.stunUntil or n<s.rootUntil then speed=0 elseif n<s.lockUntil then speed=speed*(C.LockMove or .3) end -- v1.4: во время скилла/удара двигаешься медленно, а не стоишь столбом
  h.WalkSpeed=speed
@@ -283,6 +292,7 @@ function update(e)
  if isPlayer(e) then
   e:SetAttribute('Fighter',s.fighter);e:SetAttribute('Blocking',s.block);e:SetAttribute('UltCharge',math.floor(s.charge))
   e:SetAttribute('UltActive',n<s.ultUntil);e:SetAttribute('Kills',s.kills);e:SetAttribute('PlaySeconds',math.floor(s.seconds));e:SetAttribute('Stacks',s.stacks)
+e:SetAttribute('Stunned',n<s.stunUntil and s.stunUntil-n>.2);e:SetAttribute('SlowWalk',s.walkSlow==true)
  end
 end
 local function after(e,s,delay,fn)
@@ -1164,7 +1174,8 @@ remote.OnServerEvent:Connect(function(p,action,arg)
   send(p,'Selected',{fighter=arg});p:LoadCharacter();return
  end
  if h.Health<=0 then return end
- if action=='Block' then
+if action=='Walk' then s.walkSlow=(arg==true);update(p);return end -- v2.2: медленная ходьба
+if action=='Block' then
   if arg==true then
    if n<s.blockReady or n<s.stunUntil or n<s.lockUntil then msg(p,'Блок ещё восстанавливается');return end
    s.block=true;anim(p,'Block',1,.2);sfxOn(p,'BlockUp')
